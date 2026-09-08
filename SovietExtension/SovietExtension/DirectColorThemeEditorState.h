@@ -21,6 +21,16 @@ typedef NS_ENUM(NSInteger, DirectColorThemeUnsavedDecision) {
     DirectColorThemeUnsavedDecisionCancel,
 };
 
+typedef NS_ENUM(NSInteger, DirectColorThemeOperation) {
+    DirectColorThemeOperationSelection = 0,
+    DirectColorThemeOperationClose,
+    DirectColorThemeOperationNew,
+    DirectColorThemeOperationDuplicate,
+    DirectColorThemeOperationRename,
+    DirectColorThemeOperationDelete,
+    DirectColorThemeOperationReload,
+};
+
 @interface DirectColorThemeEditorState : NSObject
 
 @property (nonatomic, copy, readonly) NSDictionary *builtInPresets;
@@ -33,9 +43,15 @@ typedef NS_ENUM(NSInteger, DirectColorThemeUnsavedDecision) {
 @property (nonatomic, readonly, getter=isBuiltIn) BOOL builtIn;
 @property (nonatomic, readonly, getter=isDirty) BOOL dirty;
 @property (nonatomic, readonly) DirectColorThemeUnsavedAction unsavedAction;
+@property (nonatomic, readonly) BOOL requiresSaveAsForApply;
 @property (nonatomic, copy, readonly, nullable) NSString *warning;
 
 + (NSDictionary *)builtInPresets;
++ (nullable NSDictionary *)activeConfigurationFromJSONData:(NSData *)data error:(NSError **)error;
++ (BOOL)operation:(DirectColorThemeOperation)operation
+mayProceedWithAction:(DirectColorThemeUnsavedAction)action
+         decision:(DirectColorThemeUnsavedDecision)decision
+    saveSucceeded:(BOOL)saveSucceeded;
 - (instancetype)initWithBuiltInPresets:(NSDictionary *)builtInPresets customThemes:(NSArray<DirectColorTheme *> *)customThemes;
 + (instancetype)stateForActiveConfiguration:(nullable NSDictionary *)configuration
                              builtInPresets:(NSDictionary *)builtInPresets
@@ -48,7 +64,23 @@ typedef NS_ENUM(NSInteger, DirectColorThemeUnsavedDecision) {
 - (BOOL)updateAdvancedOverrides:(NSDictionary *)advancedOverrides;
 - (void)markClean;
 - (nullable DirectColorTheme *)selectedCustomTheme;
-- (NSDictionary *)applicationSnapshotForCustomIdentifier:(NSString *)identifier;
+
+@end
+
+@interface DirectColorThemeApplyResult : NSObject
+@property (nonatomic, strong, readonly) DirectColorTheme *authoritativeTheme;
+@property (nonatomic, copy, readonly) NSDictionary *applicationSnapshot;
+@end
+
+typedef BOOL (^DirectColorThemeSaveHandler)(DirectColorTheme *theme, NSError **error);
+typedef NSArray<DirectColorTheme *> * _Nullable (^DirectColorThemeReloadHandler)(NSError **error);
+
+@interface DirectColorThemeApplyCoordinator : NSObject
++ (nullable DirectColorThemeApplyResult *)prepareCustomApplicationForState:(DirectColorThemeEditorState *)state
+                                                               sourceTheme:(DirectColorTheme *)sourceTheme
+                                                               saveHandler:(DirectColorThemeSaveHandler)saveHandler
+                                                             reloadHandler:(DirectColorThemeReloadHandler)reloadHandler
+                                                                     error:(NSError **)error;
 
 @end
 

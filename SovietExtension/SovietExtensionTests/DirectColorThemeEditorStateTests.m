@@ -26,15 +26,19 @@
 }
 
 - (void)testBuiltinSelectionDeepCopiesTenColorsAndIsReadOnly {
-    NSDictionary *presets = [DirectColorThemeEditorState builtInPresets];
+    NSMutableDictionary *presets = [[DirectColorThemeEditorState builtInPresets] mutableCopy];
+    NSMutableDictionary *catppuccin = [presets[@"catppuccin"] mutableCopy];
+    NSMutableDictionary *sourceLight = [catppuccin[@"light"] mutableCopy];
+    catppuccin[@"light"] = sourceLight; presets[@"catppuccin"] = catppuccin;
     DirectColorThemeEditorState *state = [[DirectColorThemeEditorState alloc] initWithBuiltInPresets:presets customThemes:@[]];
+    sourceLight[@"base"] = @"#000000";
     XCTAssertTrue([state selectIdentifier:@"builtin:catppuccin"]);
     XCTAssertTrue(state.isBuiltIn);
     XCTAssertEqual(state.lightColors.count, 10u);
     XCTAssertEqual(state.darkColors.count, 10u);
     XCTAssertEqualObjects([NSSet setWithArray:state.lightColors.allKeys], DirectColorTheme.requiredColorKeys);
-    XCTAssertFalse([state.lightColors isEqual:presets[@"catppuccin"][@"light"]] == NO);
-    XCTAssertNotEqual((id)state.lightColors, presets[@"catppuccin"][@"light"]);
+    XCTAssertEqualObjects(state.lightColors[@"base"], @"#EFF1F5");
+    XCTAssertNotEqual((id)state.lightColors, sourceLight);
 }
 
 - (void)testEditingMarksDirtyWithoutMutatingBuiltinPreset {
@@ -118,11 +122,108 @@
     XCTAssertEqualObjects(state.warning, @"上次应用的自定义主题源文件已不存在；微信仍使用最后应用快照。请选择或新建主题后重新应用。");
 }
 
+- (void)testLegacyOverridesRemainCleanButRequireSaveAsForApply {
+    NSDictionary *active = @{@"preset":@"gruvbox", @"light":[self colorsWithSeed:0x303030],
+                             @"dark":[self colorsWithSeed:0x404040], @"advanced":@{@"light":@{}, @"dark":@{}}};
+    DirectColorThemeEditorState *state = [DirectColorThemeEditorState stateForActiveConfiguration:active
+        builtInPresets:[DirectColorThemeEditorState builtInPresets] customThemes:@[]];
+    XCTAssertFalse(state.dirty);
+    XCTAssertTrue(state.requiresSaveAsForApply);
+    XCTAssertEqual(state.unsavedAction, DirectColorThemeUnsavedActionNone);
+}
+
+- (void)testOperationDecisionMatrix {
+    NSArray<NSNumber *> *operations = @[@(DirectColorThemeOperationSelection), @(DirectColorThemeOperationClose),
+        @(DirectColorThemeOperationNew), @(DirectColorThemeOperationDuplicate), @(DirectColorThemeOperationRename),
+        @(DirectColorThemeOperationDelete), @(DirectColorThemeOperationReload)];
+    for (NSNumber *operation in operations) {
+        for (NSNumber *action in @[@(DirectColorThemeUnsavedActionSave), @(DirectColorThemeUnsavedActionSaveAs)]) {
+            XCTAssertFalse([DirectColorThemeEditorState operation:operation.integerValue mayProceedWithAction:action.integerValue decision:DirectColorThemeUnsavedDecisionCancel saveSucceeded:YES]);
+            XCTAssertTrue([DirectColorThemeEditorState operation:operation.integerValue mayProceedWithAction:action.integerValue decision:DirectColorThemeUnsavedDecisionDiscard saveSucceeded:NO]);
+            XCTAssertTrue([DirectColorThemeEditorState operation:operation.integerValue mayProceedWithAction:action.integerValue decision:DirectColorThemeUnsavedDecisionSave saveSucceeded:YES]);
+            XCTAssertFalse([DirectColorThemeEditorState operation:operation.integerValue mayProceedWithAction:action.integerValue decision:DirectColorThemeUnsavedDecisionSave saveSucceeded:NO]);
+        }
+        XCTAssertTrue([DirectColorThemeEditorState operation:operation.integerValue mayProceedWithAction:DirectColorThemeUnsavedActionNone decision:DirectColorThemeUnsavedDecisionCancel saveSucceeded:NO]);
+    }
+}
+
+- (void)testCustomApplyAlwaysSavesVisibleStateThenUsesReloadedAuthoritativeSnapshot {
+    DirectColorTheme *source = [self themeNamed:@"Ocean" identifier:@"11111111-1111-1111-1111-111111111111"];
+    DirectColorThemeEditorState *state = [[DirectColorThemeEditorState alloc] initWithBuiltInPresets:DirectColorThemeEditorState.builtInPresets customThemes:@[source]];
+    [state selectIdentifier:[@"custom:" stringByAppendingString:source.identifier]];
+    [state setColor:@"#abcdef" forKey:@"base" appearance:DirectColorThemeAppearanceLight];
+    [state markClean]; // Active snapshot can diverge while the editor is logically clean.
+    __block DirectColorTheme *saved = nil;
+    __block NSUInteger saves = 0, reloads = 0;
+    DirectColorThemeApplyResult *result = [DirectColorThemeApplyCoordinator prepareCustomApplicationForState:state sourceTheme:source saveHandler:^BOOL(DirectColorTheme *theme, NSError **error) {
+        (void)error; saves++; saved = theme; return YES;
+    } reloadHandler:^NSArray<DirectColorTheme *> *(NSError **error) {
+        (void)error; reloads++;
+        NSMutableDictionary *document = [saved.dictionaryRepresentation mutableCopy];
+        NSMutableDictionary *light = [document[@"light"] mutableCopy]; light[@"link"] = @"#123456"; document[@"light"] = light;
+        return @[[DirectColorTheme themeFromDictionary:document error:nil]];
+    } error:nil];
+    XCTAssertNotNil(result);
+    XCTAssertEqual(saves, 1u);
+    XCTAssertEqual(reloads, 1u);
+    XCTAssertEqualObjects(saved.lightColors[@"base"], @"#ABCDEF");
+    XCTAssertEqualObjects(result.applicationSnapshot[@"light"][@"base"], @"#ABCDEF");
+    XCTAssertEqualObjects(result.applicationSnapshot[@"light"][@"link"], @"#123456");
+    XCTAssertEqualObjects(result.authoritativeTheme.applicationSnapshot, result.applicationSnapshot);
+}
+
+- (void)testCustomApplySaveFailureDoesNotReloadOrProduceSnapshot {
+    DirectColorTheme *source = [self themeNamed:@"Ocean" identifier:@"11111111-1111-1111-1111-111111111111"];
+    DirectColorThemeEditorState *state = [[DirectColorThemeEditorState alloc] initWithBuiltInPresets:DirectColorThemeEditorState.builtInPresets customThemes:@[source]];
+    [state selectIdentifier:[@"custom:" stringByAppendingString:source.identifier]];
+    __block NSUInteger reloads = 0;
+    NSError *error = nil;
+    DirectColorThemeApplyResult *result = [DirectColorThemeApplyCoordinator prepareCustomApplicationForState:state sourceTheme:source saveHandler:^BOOL(DirectColorTheme *theme, NSError **saveError) {
+        (void)theme; if (saveError) *saveError = [NSError errorWithDomain:@"test" code:7 userInfo:nil]; return NO;
+    } reloadHandler:^NSArray<DirectColorTheme *> *(NSError **reloadError) {
+        (void)reloadError; reloads++; return @[source];
+    } error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(reloads, 0u);
+    XCTAssertEqual(error.code, 7);
+    XCTAssertEqualObjects(state.selectedIdentifier, [@"custom:" stringByAppendingString:source.identifier]);
+}
+
+- (void)testInvalidActiveAdvancedDoesNotEnterInvalidSnapshotState {
+    DirectColorTheme *source = [self themeNamed:@"Ocean" identifier:@"11111111-1111-1111-1111-111111111111"];
+    NSDictionary *active = @{@"schema_version":@2, @"preset":NSNull.null, @"custom_theme_id":source.identifier,
+        @"light":[self colorsWithSeed:0x505050], @"dark":[self colorsWithSeed:0x606060],
+        @"advanced":@{@"light":@{@"bad":@42}, @"dark":@{}}};
+    DirectColorThemeEditorState *state = [DirectColorThemeEditorState stateForActiveConfiguration:active
+        builtInPresets:DirectColorThemeEditorState.builtInPresets customThemes:@[source]];
+    XCTAssertEqualObjects(state.lightColors, source.lightColors);
+    XCTAssertEqualObjects(state.advancedOverrides, source.advancedOverrides);
+    XCTAssertNotNil(state.warning);
+}
+
+- (void)testNonObjectActiveConfigurationProducesExplicitError {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@[@"legal", @"json"] options:0 error:nil];
+    NSError *error = nil;
+    XCTAssertNil([DirectColorThemeEditorState activeConfigurationFromJSONData:data error:&error]);
+    XCTAssertNotNil(error);
+    XCTAssertTrue([error.localizedDescription containsString:@"object"]);
+}
+
+- (void)testInvalidLegacyAdvancedDoesNotDisplayUnvalidatedOverrides {
+    NSDictionary *active = @{@"preset":@"gruvbox", @"light":[self colorsWithSeed:0x303030],
+        @"dark":[self colorsWithSeed:0x404040], @"advanced":@{@"light":@[], @"dark":@{}}};
+    DirectColorThemeEditorState *state = [DirectColorThemeEditorState stateForActiveConfiguration:active
+        builtInPresets:DirectColorThemeEditorState.builtInPresets customThemes:@[]];
+    XCTAssertEqualObjects(state.lightColors, DirectColorThemeEditorState.builtInPresets[@"gruvbox"][@"light"]);
+    XCTAssertFalse(state.requiresSaveAsForApply);
+    XCTAssertNotNil(state.warning);
+}
+
 - (void)testSchemaTwoSnapshotHasOnlyDirectColorsAndNoPalette {
     DirectColorTheme *theme = [self themeNamed:@"Ocean" identifier:@"11111111-1111-1111-1111-111111111111"];
     DirectColorThemeEditorState *state = [[DirectColorThemeEditorState alloc] initWithBuiltInPresets:[DirectColorThemeEditorState builtInPresets] customThemes:@[theme]];
     [state selectIdentifier:[@"custom:" stringByAppendingString:theme.identifier]];
-    NSDictionary *snapshot = [state applicationSnapshotForCustomIdentifier:theme.identifier];
+    NSDictionary *snapshot = theme.applicationSnapshot;
     NSSet *expectedKeys = [NSSet setWithArray:@[@"schema_version", @"preset", @"custom_theme_id", @"light", @"dark", @"advanced"]];
     XCTAssertEqualObjects([NSSet setWithArray:snapshot.allKeys], expectedKeys);
     XCTAssertEqual([snapshot[@"light"] count], 10u);

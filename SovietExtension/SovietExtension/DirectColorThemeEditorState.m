@@ -2,6 +2,8 @@
 #import "DirectColorTheme.h"
 
 static NSString * const MissingSourceWarning = @"上次应用的自定义主题源文件已不存在；微信仍使用最后应用快照。请选择或新建主题后重新应用。";
+static NSString * const InvalidSnapshotWarning = @"上次应用的主题快照无效，已显示可用的主题源数据。请检查 theme.json 后重新应用。";
+static NSString * const EditorErrorDomain = @"SovietExtension.DirectColorThemeEditorState";
 
 static NSDictionary *Colors(NSString *base, NSString *sidebar, NSString *ribbon, NSString *outgoing,
                             NSString *incoming, NSString *text, NSString *subtext, NSString *accent,
@@ -26,6 +28,23 @@ static NSDictionary *NormalizedColors(NSDictionary *colors) {
     return result;
 }
 
+static NSDictionary *StrictSnapshotValues(NSDictionary *configuration, NSError **error) {
+    if (!ValidColors(configuration[@"light"]) || !ValidColors(configuration[@"dark"])) return nil;
+    NSISO8601DateFormatter *formatter = [[NSISO8601DateFormatter alloc] init];
+    formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+    NSString *now = [formatter stringFromDate:[NSDate date]];
+    NSDictionary *document = @{@"schema_version":@1, @"id":NSUUID.UUID.UUIDString, @"name":@"Active Snapshot Validation",
+        @"source":@"custom", @"created_at":now, @"updated_at":now, @"light":configuration[@"light"],
+        @"dark":configuration[@"dark"], @"advanced":configuration[@"advanced"] ?: EmptyAdvanced()};
+    DirectColorTheme *theme = [DirectColorTheme themeFromDictionary:document error:error];
+    return theme ? @{@"light":theme.lightColors, @"dark":theme.darkColors, @"advanced":theme.advancedOverrides} : nil;
+}
+
+static NSDictionary *DeepCopyPropertyList(NSDictionary *value) {
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:value format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
+    return data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:nil error:nil] : [value copy];
+}
+
 @interface DirectColorThemeEditorState ()
 @property (nonatomic, copy, readwrite) NSDictionary *builtInPresets;
 @property (nonatomic, copy, readwrite) NSArray<DirectColorTheme *> *customThemes;
@@ -34,10 +53,29 @@ static NSDictionary *NormalizedColors(NSDictionary *colors) {
 @property (nonatomic, strong, readwrite) NSMutableDictionary *darkColors;
 @property (nonatomic, copy, readwrite) NSDictionary *advancedOverrides;
 @property (nonatomic, readwrite, getter=isDirty) BOOL dirty;
+@property (nonatomic, readwrite) BOOL requiresSaveAsForApply;
 @property (nonatomic, copy, readwrite) NSString *warning;
 @end
 
 @implementation DirectColorThemeEditorState
+
++ (NSDictionary *)activeConfigurationFromJSONData:(NSData *)data error:(NSError **)error {
+    id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:error];
+    if (!object) return nil;
+    if (![object isKindOfClass:NSDictionary.class]) {
+        if (error) *error = [NSError errorWithDomain:EditorErrorDomain code:1 userInfo:@{NSLocalizedDescriptionKey:@"theme.json root must be a JSON object."}];
+        return nil;
+    }
+    return object;
+}
+
++ (BOOL)operation:(DirectColorThemeOperation)operation mayProceedWithAction:(DirectColorThemeUnsavedAction)action decision:(DirectColorThemeUnsavedDecision)decision saveSucceeded:(BOOL)saveSucceeded {
+    (void)operation;
+    if (action == DirectColorThemeUnsavedActionNone) return YES;
+    if (decision == DirectColorThemeUnsavedDecisionCancel) return NO;
+    if (decision == DirectColorThemeUnsavedDecisionDiscard) return YES;
+    return saveSucceeded;
+}
 
 + (NSDictionary *)builtInPresets {
     return @{
@@ -63,7 +101,7 @@ static NSDictionary *NormalizedColors(NSDictionary *colors) {
 - (instancetype)initWithBuiltInPresets:(NSDictionary *)builtInPresets customThemes:(NSArray<DirectColorTheme *> *)customThemes {
     self = [super init];
     if (self) {
-        _builtInPresets = [builtInPresets copy];
+        _builtInPresets = DeepCopyPropertyList(builtInPresets);
         _customThemes = [customThemes copy];
         _appearance = DirectColorThemeAppearanceLight;
         [self selectIdentifier:@"builtin:catppuccin"];
@@ -103,6 +141,7 @@ static NSDictionary *NormalizedColors(NSDictionary *colors) {
     self.darkColors = [NormalizedColors(dark) mutableCopy];
     self.advancedOverrides = [advanced copy];
     self.dirty = NO;
+    self.requiresSaveAsForApply = NO;
     self.warning = nil;
     return YES;
 }
@@ -141,36 +180,78 @@ static NSDictionary *NormalizedColors(NSDictionary *colors) {
     if (![configuration isKindOfClass:NSDictionary.class]) return state;
     NSString *preset = [configuration[@"preset"] isKindOfClass:NSString.class] ? configuration[@"preset"] : nil;
     NSString *customID = [configuration[@"custom_theme_id"] isKindOfClass:NSString.class] ? configuration[@"custom_theme_id"] : nil;
-    BOOL snapshotValid = ValidColors(configuration[@"light"]) && ValidColors(configuration[@"dark"]);
-    NSDictionary *advanced = [configuration[@"advanced"] isKindOfClass:NSDictionary.class] ? configuration[@"advanced"] : EmptyAdvanced();
+    NSError *snapshotError = nil;
+    NSDictionary *snapshot = StrictSnapshotValues(configuration, &snapshotError);
     if (customID.length) {
         DirectColorTheme *source = nil;
         for (DirectColorTheme *theme in customThemes) if ([theme.identifier caseInsensitiveCompare:customID] == NSOrderedSame) { source = theme; break; }
-        state.selectedIdentifier = [@"custom:" stringByAppendingString:(source.identifier ?: customID.uppercaseString)];
-        if (snapshotValid) {
-            state.lightColors = [NormalizedColors(configuration[@"light"]) mutableCopy];
-            state.darkColors = [NormalizedColors(configuration[@"dark"]) mutableCopy];
-            state.advancedOverrides = advanced;
+        if (snapshot) {
+            state.selectedIdentifier = [@"custom:" stringByAppendingString:(source.identifier ?: customID.uppercaseString)];
+            state.lightColors = [snapshot[@"light"] mutableCopy];
+            state.darkColors = [snapshot[@"dark"] mutableCopy];
+            state.advancedOverrides = snapshot[@"advanced"];
+            if (!source) state.warning = MissingSourceWarning;
         } else if (source) {
-            state.lightColors = [source.lightColors mutableCopy]; state.darkColors = [source.darkColors mutableCopy]; state.advancedOverrides = source.advancedOverrides;
+            [state loadIdentifier:[@"custom:" stringByAppendingString:source.identifier]];
+            state.warning = InvalidSnapshotWarning;
+        } else {
+            state.warning = [NSString stringWithFormat:@"%@ %@", MissingSourceWarning, InvalidSnapshotWarning];
         }
-        if (!source) state.warning = MissingSourceWarning;
         state.dirty = NO;
     } else if (preset.length && builtInPresets[preset]) {
         [state loadIdentifier:[@"builtin:" stringByAppendingString:preset]];
-        if (snapshotValid) {
-            state.lightColors = [NormalizedColors(configuration[@"light"]) mutableCopy];
-            state.darkColors = [NormalizedColors(configuration[@"dark"]) mutableCopy];
-            state.advancedOverrides = advanced;
-            state.dirty = NO;
+        if (snapshot) {
+            state.lightColors = [snapshot[@"light"] mutableCopy];
+            state.darkColors = [snapshot[@"dark"] mutableCopy];
+            state.advancedOverrides = snapshot[@"advanced"];
+            NSDictionary *builtIn = builtInPresets[preset];
+            state.requiresSaveAsForApply = ![state.lightColors isEqual:builtIn[@"light"]] ||
+                ![state.darkColors isEqual:builtIn[@"dark"]] || ![state.advancedOverrides isEqual:(builtIn[@"advanced"] ?: EmptyAdvanced())];
+        } else if (configuration[@"light"] || configuration[@"dark"] || configuration[@"advanced"]) {
+            state.warning = InvalidSnapshotWarning;
         }
+        state.dirty = NO;
     }
     return state;
 }
 
-- (NSDictionary *)applicationSnapshotForCustomIdentifier:(NSString *)identifier {
-    return @{@"schema_version":@2, @"preset":NSNull.null, @"custom_theme_id":identifier.uppercaseString,
-             @"light":[self.lightColors copy], @"dark":[self.darkColors copy], @"advanced":self.advancedOverrides ?: EmptyAdvanced()};
+@end
+
+@interface DirectColorThemeApplyResult ()
+@property (nonatomic, strong, readwrite) DirectColorTheme *authoritativeTheme;
+@property (nonatomic, copy, readwrite) NSDictionary *applicationSnapshot;
+@end
+@implementation DirectColorThemeApplyResult
+@end
+
+@implementation DirectColorThemeApplyCoordinator
+
++ (DirectColorThemeApplyResult *)prepareCustomApplicationForState:(DirectColorThemeEditorState *)state sourceTheme:(DirectColorTheme *)sourceTheme saveHandler:(DirectColorThemeSaveHandler)saveHandler reloadHandler:(DirectColorThemeReloadHandler)reloadHandler error:(NSError **)error {
+    if (!state || !sourceTheme || !saveHandler || !reloadHandler) {
+        if (error) *error = [NSError errorWithDomain:EditorErrorDomain code:2 userInfo:@{NSLocalizedDescriptionKey:@"Custom theme application is missing required state."}];
+        return nil;
+    }
+    NSMutableDictionary *document = [sourceTheme.dictionaryRepresentation mutableCopy];
+    document[@"light"] = [state.lightColors copy];
+    document[@"dark"] = [state.darkColors copy];
+    document[@"advanced"] = [state.advancedOverrides copy];
+    NSISO8601DateFormatter *formatter = [[NSISO8601DateFormatter alloc] init];
+    formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+    document[@"updated_at"] = [formatter stringFromDate:[NSDate date]];
+    DirectColorTheme *visibleModel = [DirectColorTheme themeFromDictionary:document error:error];
+    if (!visibleModel || !saveHandler(visibleModel, error)) return nil;
+    NSArray<DirectColorTheme *> *themes = reloadHandler(error);
+    if (!themes) return nil;
+    DirectColorTheme *authoritative = nil;
+    for (DirectColorTheme *theme in themes) if ([theme.identifier isEqualToString:visibleModel.identifier]) { authoritative = theme; break; }
+    if (!authoritative) {
+        if (error) *error = [NSError errorWithDomain:EditorErrorDomain code:3 userInfo:@{NSLocalizedDescriptionKey:@"Saved custom theme could not be reloaded."}];
+        return nil;
+    }
+    DirectColorThemeApplyResult *result = [[DirectColorThemeApplyResult alloc] init];
+    result.authoritativeTheme = authoritative;
+    result.applicationSnapshot = authoritative.applicationSnapshot;
+    return result;
 }
 
 @end

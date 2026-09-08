@@ -98,7 +98,7 @@ static NSString *YMHexFromColor(NSColor *color) {
 
 - (void)showWindowCentered {
     [GlobalThemeSettingsWindowController registerDefaults];
-    if (self.window.visible && ![self ym_resolveUnsavedForOperation:@"重新载入"]) return;
+    if (self.window.visible && ![self ym_resolveUnsavedForOperation:DirectColorThemeOperationReload]) return;
     [self ym_reloadFromDisk]; if (!self.window.visible) [self.window center]; [NSApp activateIgnoringOtherApps:YES]; [self.window makeKeyAndOrderFront:nil];
 }
 
@@ -145,7 +145,7 @@ static NSString *YMHexFromColor(NSColor *color) {
 
 - (NSDictionary *)ym_readActiveConfiguration:(NSError **)error {
     NSData *data=[NSData dataWithContentsOfFile:[self ym_configPath] options:0 error:error]; if (!data) { if (error && (*error).code==NSFileReadNoSuchFileError) *error=nil; return nil; }
-    id object=[NSJSONSerialization JSONObjectWithData:data options:0 error:error]; return [object isKindOfClass:NSDictionary.class] ? object : nil;
+    id object=[DirectColorThemeEditorState activeConfigurationFromJSONData:data error:error]; return object;
 }
 
 - (void)ym_reloadFromDisk {
@@ -188,8 +188,12 @@ static NSString *YMHexFromColor(NSColor *color) {
 
 - (void)controlTextDidChange:(NSNotification *)notification {
     if (self.refreshing) return; NSTextField *field=notification.object; NSString *key=field.identifier; if (![YMColorKeys() containsObject:key]) return;
-    if ([self.editorState setColor:field.stringValue forKey:key appearance:self.editorState.appearance]) { field.textColor=NSColor.labelColor; self.colorWells[key].color=YMColorFromHex(field.stringValue); self.previewView.colors=[self ym_currentColors]; [self.previewView setNeedsDisplay:YES]; } else field.textColor=NSColor.systemRedColor;
+    if ([self.editorState setColor:field.stringValue forKey:key appearance:self.editorState.appearance]) { field.stringValue=field.stringValue.uppercaseString; field.textColor=NSColor.labelColor; self.colorWells[key].color=YMColorFromHex(field.stringValue); self.previewView.colors=[self ym_currentColors]; [self.previewView setNeedsDisplay:YES]; } else field.textColor=NSColor.systemRedColor;
     self.statusLabel.stringValue=@"有未保存修改";
+}
+- (void)controlTextDidEndEditing:(NSNotification *)notification {
+    NSTextField *field=notification.object; NSString *key=field.identifier; if (![YMColorKeys() containsObject:key]) return;
+    if ([self.editorState setColor:field.stringValue forKey:key appearance:self.editorState.appearance]) { field.stringValue=field.stringValue.uppercaseString; field.textColor=NSColor.labelColor; }
 }
 - (void)textDidChange:(NSNotification *)notification { if (!self.refreshing && notification.object==self.advancedTextView) self.statusLabel.stringValue=@"专家设置有未保存修改"; }
 - (void)colorWellChanged:(NSColorWell *)sender { NSString *key=YMColorKeys()[sender.tag]; NSString *hex=YMHexFromColor(sender.color); self.colorFields[key].stringValue=hex; [self.editorState setColor:hex forKey:key appearance:self.editorState.appearance]; [self ym_refreshControls]; self.statusLabel.stringValue=@"有未保存修改"; }
@@ -201,24 +205,23 @@ static NSString *YMHexFromColor(NSColor *color) {
     NSModalResponse r=[a runModal]; return r==NSAlertFirstButtonReturn?DirectColorThemeUnsavedDecisionSave:(r==NSAlertSecondButtonReturn?DirectColorThemeUnsavedDecisionDiscard:DirectColorThemeUnsavedDecisionCancel);
 }
 
-- (BOOL)ym_resolveUnsavedForOperation:(NSString *)operation {
-    (void)operation; NSError *error=nil; [self ym_syncFieldsWithError:&error]; if (!self.editorState.dirty && !error) return YES;
-    DirectColorThemeUnsavedDecision decision=[self ym_unsavedDecision]; if (decision==DirectColorThemeUnsavedDecisionCancel) return NO; if (decision==DirectColorThemeUnsavedDecisionDiscard) return YES;
-    return self.editorState.isBuiltIn?[self ym_saveAsPrompted]:[self ym_saveCurrentCustom];
+- (BOOL)ym_resolveUnsavedForOperation:(DirectColorThemeOperation)operation {
+    NSError *error=nil; [self ym_syncFieldsWithError:&error];
+    DirectColorThemeUnsavedAction action=self.editorState.unsavedAction;
+    if (action==DirectColorThemeUnsavedActionNone && !error) return YES;
+    if (action==DirectColorThemeUnsavedActionNone) action=self.editorState.isBuiltIn?DirectColorThemeUnsavedActionSaveAs:DirectColorThemeUnsavedActionSave;
+    DirectColorThemeUnsavedDecision decision=[self ym_unsavedDecision];
+    BOOL saved=NO;
+    if (decision==DirectColorThemeUnsavedDecisionSave) saved=action==DirectColorThemeUnsavedActionSaveAs?[self ym_saveAsPrompted]:[self ym_saveCurrentCustom];
+    BOOL proceed=[DirectColorThemeEditorState operation:operation mayProceedWithAction:action decision:decision saveSucceeded:saved];
+    if (proceed && decision==DirectColorThemeUnsavedDecisionDiscard) { [self.editorState selectIdentifier:self.editorState.selectedIdentifier]; [self ym_refreshControls]; }
+    return proceed;
 }
 
 - (void)themeChanged:(id)sender {
     (void)sender; NSString *identifier=self.themePopup.selectedItem.representedObject;
     if ([identifier isEqual:YMNewThemeCommand]) { [self ym_selectPopupIdentifier:self.editorState.selectedIdentifier]; [self newTheme:nil]; return; }
-    NSError *error=nil; [self ym_syncFieldsWithError:&error]; if (error) { [self ym_showError:error.localizedDescription]; [self ym_selectPopupIdentifier:self.editorState.selectedIdentifier]; return; }
-    if (self.editorState.dirty) {
-        DirectColorThemeUnsavedDecision decision=[self ym_unsavedDecision];
-        if (decision==DirectColorThemeUnsavedDecisionCancel) { [self ym_selectPopupIdentifier:self.editorState.selectedIdentifier]; return; }
-        if (decision==DirectColorThemeUnsavedDecisionSave) {
-            BOOL saved=self.editorState.isBuiltIn?[self ym_saveAsPrompted]:[self ym_saveCurrentCustom];
-            if (!saved) { [self ym_selectPopupIdentifier:self.editorState.selectedIdentifier]; return; }
-        }
-    }
+    if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationSelection]) { [self ym_selectPopupIdentifier:self.editorState.selectedIdentifier]; return; }
     BOOL changed=[self.editorState selectIdentifier:identifier];
     if (!changed) [self ym_selectPopupIdentifier:self.editorState.selectedIdentifier]; else { [NSUserDefaults.standardUserDefaults setObject:identifier forKey:YMGlobalThemeSelectionKey]; [self ym_refreshControls]; }
 }
@@ -246,31 +249,44 @@ static NSString *YMHexFromColor(NSColor *color) {
     [self.store loadThemes:nil]; NSString *identifier=[@"custom:" stringByAppendingString:theme.identifier]; self.editorState=[[DirectColorThemeEditorState alloc] initWithBuiltInPresets:DirectColorThemeEditorState.builtInPresets customThemes:self.store.themes]; [self.editorState selectIdentifier:identifier]; [self ym_rebuildPopup]; [self ym_refreshControls]; self.statusLabel.stringValue=@"主题已保存"; return YES;
 }
 
-- (void)newTheme:(id)sender { (void)sender; NSError *error=nil; if (![self ym_syncFieldsWithError:&error]) { [self ym_showError:error.localizedDescription]; return; } [self ym_saveAsPrompted]; }
-- (void)duplicateTheme:(id)sender { (void)sender; NSError *error=nil; if (![self ym_syncFieldsWithError:&error]) { [self ym_showError:error.localizedDescription]; return; } [self ym_saveAsPrompted]; }
-- (void)renameTheme:(id)sender { (void)sender; if (![self ym_resolveUnsavedForOperation:@"重命名"]) return; DirectColorTheme *theme=self.editorState.selectedCustomTheme; if(!theme)return; NSString *name=[self ym_promptNameWithTitle:@"重命名自定义主题" defaultValue:theme.name]; if(!name)return; NSError *error=nil; DirectColorTheme *renamed=[self.store renameTheme:theme name:name error:&error]; if(!renamed){[self ym_showError:error.localizedDescription];return;} [self ym_reloadFromDisk]; [self.editorState selectIdentifier:[@"custom:" stringByAppendingString:renamed.identifier]]; [self ym_rebuildPopup]; [self ym_refreshControls]; }
+- (void)newTheme:(id)sender { (void)sender; if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationNew]) return; [self ym_saveAsPrompted]; }
+- (void)duplicateTheme:(id)sender { (void)sender; if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationDuplicate]) return; [self ym_saveAsPrompted]; }
+- (void)renameTheme:(id)sender { (void)sender; if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationRename]) return; DirectColorTheme *theme=self.editorState.selectedCustomTheme; if(!theme)return; NSString *name=[self ym_promptNameWithTitle:@"重命名自定义主题" defaultValue:theme.name]; if(!name)return; NSError *error=nil; DirectColorTheme *renamed=[self.store renameTheme:theme name:name error:&error]; if(!renamed){[self ym_showError:error.localizedDescription];return;} [self ym_reloadFromDisk]; [self.editorState selectIdentifier:[@"custom:" stringByAppendingString:renamed.identifier]]; [self ym_rebuildPopup]; [self ym_refreshControls]; }
 
 - (void)deleteTheme:(id)sender {
-    (void)sender; if (![self ym_resolveUnsavedForOperation:@"删除"]) return; DirectColorTheme *theme=self.editorState.selectedCustomTheme; if(!theme)return;
+    (void)sender; if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationDelete]) return; DirectColorTheme *theme=self.editorState.selectedCustomTheme; if(!theme)return;
     NSAlert *a=[[NSAlert alloc] init]; a.alertStyle=NSAlertStyleWarning; a.messageText=[NSString stringWithFormat:@"删除“%@”？",theme.name];
     NSDictionary *active=[self ym_readActiveConfiguration:nil]; BOOL applied=[active[@"custom_theme_id"] isKindOfClass:NSString.class]&&[active[@"custom_theme_id"] caseInsensitiveCompare:theme.identifier]==NSOrderedSame;
     a.informativeText=applied?@"此主题是上次应用源。删除后，微信仍使用最后应用快照，直到应用另一个主题。":@"此操作无法撤销。"; [a addButtonWithTitle:@"删除"]; [a addButtonWithTitle:@"取消"]; if([a runModal]!=NSAlertFirstButtonReturn)return;
     NSError *error=nil; if(![self.store deleteTheme:theme error:&error]){[self ym_showError:error.localizedDescription];return;} [self ym_reloadFromDisk]; if(applied)self.statusLabel.stringValue=@"源主题已删除；微信仍使用最后应用快照，直到应用另一个主题。";
 }
-- (void)reloadThemes:(id)sender { (void)sender; if([self ym_resolveUnsavedForOperation:@"重新载入"]) [self ym_reloadFromDisk]; }
+- (void)reloadThemes:(id)sender { (void)sender; if([self ym_resolveUnsavedForOperation:DirectColorThemeOperationReload]) [self ym_reloadFromDisk]; }
 
 - (void)closeWindow:(id)sender { (void)sender; [self.window performClose:nil]; }
-- (BOOL)windowShouldClose:(NSWindow *)sender { (void)sender; if(self.allowingClose)return YES; return [self ym_resolveUnsavedForOperation:@"关闭"]; }
+- (BOOL)windowShouldClose:(NSWindow *)sender { (void)sender; if(self.allowingClose)return YES; return [self ym_resolveUnsavedForOperation:DirectColorThemeOperationClose]; }
 
 - (void)applyAndRestart:(id)sender {
     (void)sender; NSError *error=nil; if(![self ym_syncFieldsWithError:&error]){[self ym_showError:error.localizedDescription];return;}
     DirectColorTheme *validation=[self ym_themeFromCurrentNamed:@"Validation" identifier:NSUUID.UUID.UUIDString created:nil error:&error]; if(!validation){[self ym_showError:error.localizedDescription];return;}
-    if(self.editorState.isBuiltIn&&self.editorState.dirty){ if(![self ym_saveAsPrompted])return; validation=self.editorState.selectedCustomTheme; }
+    if(self.editorState.isBuiltIn&&(self.editorState.dirty||self.editorState.requiresSaveAsForApply)){ if(![self ym_saveAsPrompted])return; validation=self.editorState.selectedCustomTheme; }
     if([self.editorState.selectedIdentifier hasPrefix:@"custom:"]&&!self.editorState.selectedCustomTheme){ [self ym_showError:@"上次应用的自定义主题源文件已不存在。请先使用“另存为自定义主题”保存当前快照，再应用。"]; return; }
-    DirectColorTheme *custom=self.editorState.selectedCustomTheme; if(custom&&self.editorState.dirty){if(![self ym_saveCurrentCustom])return; custom=self.editorState.selectedCustomTheme;}
+    DirectColorTheme *custom=self.editorState.selectedCustomTheme;
+    NSDictionary *config=nil;
+    if(custom) {
+        DirectColorThemeApplyResult *result=[DirectColorThemeApplyCoordinator prepareCustomApplicationForState:self.editorState sourceTheme:custom saveHandler:^BOOL(DirectColorTheme *theme, NSError **saveError) {
+            return [self.store saveTheme:theme error:saveError];
+        } reloadHandler:^NSArray<DirectColorTheme *> *(NSError **reloadError) {
+            return [self.store loadThemes:reloadError];
+        } error:&error];
+        if(!result){[self ym_showError:error.localizedDescription];return;}
+        custom=result.authoritativeTheme; config=result.applicationSnapshot;
+        NSString *identifier=[@"custom:" stringByAppendingString:custom.identifier];
+        self.editorState=[[DirectColorThemeEditorState alloc] initWithBuiltInPresets:DirectColorThemeEditorState.builtInPresets customThemes:self.store.themes];
+        [self.editorState selectIdentifier:identifier]; [self ym_rebuildPopup]; [self ym_refreshControls];
+    }
     NSString *runner=[[self ym_supportDirectory] stringByAppendingPathComponent:@"apply_theme.sh"]; if(![NSFileManager.defaultManager isExecutableFileAtPath:runner]){[self ym_showError:[NSString stringWithFormat:@"主题辅助程序不存在：%@\n请重新运行 Rely/install.sh。",runner]];return;}
     NSAlert *a=[[NSAlert alloc] init]; a.messageText=@"应用全局主题？"; a.informativeText=@"微信将退出。主题表会从原始备份重新生成；有稳定配置的签名身份时将优先使用，然后自动启动微信。"; [a addButtonWithTitle:@"应用并重启"]; [a addButtonWithTitle:@"取消"]; if([a runModal]!=NSAlertFirstButtonReturn)return;
-    NSDictionary *config=nil; if(custom) config=custom.applicationSnapshot; else { NSString *key=[self.editorState.selectedIdentifier substringFromIndex:8]; config=@{@"preset":key,@"light":self.editorState.lightColors,@"dark":self.editorState.darkColors,@"advanced":self.editorState.advancedOverrides}; }
+    if(!config) { NSString *key=[self.editorState.selectedIdentifier substringFromIndex:8]; config=@{@"preset":key,@"light":self.editorState.lightColors,@"dark":self.editorState.darkColors,@"advanced":self.editorState.advancedOverrides}; }
     NSString *dir=[self ym_supportDirectory]; if(![NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&error]){[self ym_showError:error.localizedDescription];return;}
     NSData *json=[NSJSONSerialization dataWithJSONObject:config options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:&error]; NSString *path=[self ym_configPath]; if(!json||![json writeToFile:path options:NSDataWritingAtomic error:&error]){[self ym_showError:error.localizedDescription];return;}
     [NSUserDefaults.standardUserDefaults setBool:YES forKey:YMCappuccinoThemeEnabledKey]; [NSUserDefaults.standardUserDefaults setObject:self.editorState.selectedIdentifier forKey:YMGlobalThemeSelectionKey]; [NSUserDefaults.standardUserDefaults synchronize];
