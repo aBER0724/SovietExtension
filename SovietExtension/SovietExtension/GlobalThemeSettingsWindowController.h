@@ -7,7 +7,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 全局主题设置：预设选择、核心语义色覆盖、完整 named-key JSON 覆盖和实时预览。
+/// 全局主题设置：只读内置预设、命名自定义主题 CRUD、浅/深十项直色文本编辑与专家原始键覆盖。
 /// 真正的 Qt/mmui 主题表在点击“应用并重启微信”后于下次启动生效。
 @interface GlobalThemeSettingsWindowController : NSWindowController
 

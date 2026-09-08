@@ -11,6 +11,8 @@
 		DC0000010000000000000002 /* DirectColorTheme.m in Sources */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000002 /* DirectColorTheme.m */; };
 		DC0000010000000000000003 /* DirectColorThemeStore.m in Sources */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000003 /* DirectColorThemeStore.m */; };
 		DC0000010000000000000004 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000005 /* XCTest.framework */; };
+		DC0000010000000000000006 /* DirectColorThemeEditorStateTests.m in Sources */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000006 /* DirectColorThemeEditorStateTests.m */; };
+		DC0000010000000000000007 /* DirectColorThemeEditorState.m in Sources */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000007 /* DirectColorThemeEditorState.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +22,8 @@
 		DC0000110000000000000003 /* DirectColorThemeStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DirectColorThemeStore.m; sourceTree = "<group>"; };
 		DC0000110000000000000004 /* SovietExtensionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SovietExtensionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DC0000110000000000000005 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
+		DC0000110000000000000006 /* DirectColorThemeEditorStateTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DirectColorThemeEditorStateTests.m; sourceTree = "<group>"; };
+		DC0000110000000000000007 /* DirectColorThemeEditorState.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DirectColorThemeEditorState.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -59,13 +63,13 @@
 		};
 		DC0000310000000000000001 /* SovietExtensionTests */ = {
 			isa = PBXGroup;
-			children = ( DC0000110000000000000001 /* DirectColorThemeStoreTests.m */, );
+			children = ( DC0000110000000000000001 /* DirectColorThemeStoreTests.m */, DC0000110000000000000006 /* DirectColorThemeEditorStateTests.m */, );
 			path = SovietExtensionTests;
 			sourceTree = "<group>";
 		};
 		DC0000310000000000000002 /* Test Model Sources */ = {
 			isa = PBXGroup;
-			children = ( DC0000110000000000000002 /* DirectColorTheme.m */, DC0000110000000000000003 /* DirectColorThemeStore.m */, );
+			children = ( DC0000110000000000000002 /* DirectColorTheme.m */, DC0000110000000000000003 /* DirectColorThemeStore.m */, DC0000110000000000000007 /* DirectColorThemeEditorState.m */, );
 			name = "Test Model Sources";
 			path = SovietExtension;
 			sourceTree = "<group>";
@@ -203,7 +207,7 @@
 		DC0000610000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = ( DC0000010000000000000001, DC0000010000000000000002, DC0000010000000000000003, );
+			files = ( DC0000010000000000000001, DC0000010000000000000002, DC0000010000000000000003, DC0000010000000000000006, DC0000010000000000000007, );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
