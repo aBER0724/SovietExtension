@@ -8,14 +8,10 @@ static NSError *ThemeError(DirectColorThemeErrorCode code, NSString *description
 }
 
 static NSDateFormatter *ThemeDateFormatter(void) {
-    static NSDateFormatter *formatter;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        formatter = [[NSDateFormatter alloc] init];
-        formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
-        formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
-        formatter.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
-    });
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+    formatter.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
     return formatter;
 }
 
@@ -86,9 +82,20 @@ static NSDictionary *NormalizeColors(id value, BOOL exactDirectKeys, NSError **e
     }
     id schema = dictionary[@"schema_version"];
     BOOL legacy = (schema == nil);
-    if (schema && (![schema isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)schema) == CFBooleanGetTypeID() ||
-        [schema integerValue] != 1)) {
+    BOOL schemaIsBoolean = schema && CFGetTypeID((__bridge CFTypeRef)schema) == CFBooleanGetTypeID();
+    if (schema && (![schema isKindOfClass:NSNumber.class] || schemaIsBoolean || [schema doubleValue] != 1.0)) {
         if (error) *error = ThemeError(DirectColorThemeErrorInvalidDocument, @"Unsupported theme schema version.");
+        return nil;
+    }
+    NSSet *documentKeys = [NSSet setWithArray:dictionary.allKeys];
+    NSSet *allowedKeys = legacy
+        ? [NSSet setWithArray:@[@"id", @"name", @"created_at", @"updated_at", @"light", @"dark", @"advanced"]]
+        : [NSSet setWithArray:@[@"schema_version", @"id", @"name", @"source", @"created_at", @"updated_at", @"light", @"dark", @"advanced"]];
+    NSSet *requiredKeys = legacy
+        ? [NSSet setWithArray:@[@"id", @"name", @"created_at", @"updated_at", @"light", @"dark"]]
+        : allowedKeys;
+    if (![documentKeys isSubsetOfSet:allowedKeys] || ![requiredKeys isSubsetOfSet:documentKeys]) {
+        if (error) *error = ThemeError(DirectColorThemeErrorInvalidDocument, @"Theme document contains missing or unknown top-level fields.");
         return nil;
     }
     if (!legacy && ![dictionary[@"source"] isKindOfClass:NSString.class]) {

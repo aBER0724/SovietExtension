@@ -41,6 +41,19 @@
     };
 }
 
+- (NSMutableDictionary *)validSchemaOneDocumentNamed:(NSString *)name {
+    return [@{@"schema_version":@1, @"id":[NSUUID UUID].UUIDString,
+        @"name":name, @"source":@"custom", @"created_at":@"2024-01-01T00:00:00Z",
+        @"updated_at":@"2024-01-01T00:00:00Z", @"light":[self colorsWithLowercaseValues],
+        @"dark":[self otherColors], @"advanced":@{@"light":@{}, @"dark":@{}}} mutableCopy];
+}
+
+- (NSMutableDictionary *)validSchemaZeroDocumentNamed:(NSString *)name {
+    return [@{@"id":[NSUUID UUID].UUIDString, @"name":name,
+        @"created_at":@"2024-01-01T00:00:00Z", @"updated_at":@"2024-01-01T00:00:00Z",
+        @"light":[self colorsWithLowercaseValues], @"dark":[self otherColors]} mutableCopy];
+}
+
 - (DirectColorTheme *)createNamed:(NSString *)name error:(NSError **)error {
     return [self.store createThemeNamed:name
                             lightColors:[self colorsWithLowercaseValues]
@@ -98,6 +111,67 @@
         @"updated_at":@"2024-01-01T00:00:00Z", @"light":[self colorsWithLowercaseValues],
         @"dark":[self otherColors], @"advanced":@{@"light":@{@"":@"#FFFFFF"}, @"dark":@{}}};
     XCTAssertNil([DirectColorTheme themeFromDictionary:document error:&error]);
+}
+
+- (void)testRejectsUnknownTopLevelFieldsForSchemaZeroAndOne {
+    NSArray<NSString *> *unknownKeys = @[@"palette", @"editor_mode", @"generated", @"derived", @"udpated_at"];
+    for (NSNumber *schemaVersion in @[@0, @1]) {
+        for (NSString *unknownKey in unknownKeys) {
+            NSMutableDictionary *document = [schemaVersion isEqual:@1]
+                ? [self validSchemaOneDocumentNamed:@"Strict"]
+                : [self validSchemaZeroDocumentNamed:@"Strict"];
+            document[unknownKey] = @{};
+            NSError *error = nil;
+            XCTAssertNil([DirectColorTheme themeFromDictionary:document error:&error],
+                         @"schema %@ accepted unknown key %@", schemaVersion, unknownKey);
+            XCTAssertNotNil(error);
+        }
+    }
+
+    NSError *error = nil;
+    NSMutableDictionary *legacyWithAdvanced = [self validSchemaZeroDocumentNamed:@"Legacy Advanced"];
+    legacyWithAdvanced[@"advanced"] = @{@"light":@{}, @"dark":@{}};
+    XCTAssertNotNil([DirectColorTheme themeFromDictionary:legacyWithAdvanced error:&error]);
+    XCTAssertNil(error);
+}
+
+- (void)testSchemaVersionRequiresNonBooleanNumberExactlyEqualToOne {
+    NSArray *invalidVersions = @[@1.5, @"1", @YES, @NO, @0, @2];
+    for (id version in invalidVersions) {
+        NSMutableDictionary *document = [self validSchemaOneDocumentNamed:@"Version"];
+        document[@"schema_version"] = version;
+        NSError *error = nil;
+        XCTAssertNil([DirectColorTheme themeFromDictionary:document error:&error],
+                     @"accepted invalid schema_version %@ (%@)", version, [version class]);
+        XCTAssertNotNil(error);
+    }
+
+    NSError *error = nil;
+    NSMutableDictionary *integralDouble = [self validSchemaOneDocumentNamed:@"Version"];
+    integralDouble[@"schema_version"] = @1.0;
+    XCTAssertNotNil([DirectColorTheme themeFromDictionary:integralDouble error:&error]);
+    XCTAssertNil(error);
+}
+
+- (void)testUnicodeCanonicalAndLocaleStableNameUniquenessForLoadAndCRUD {
+    NSError *error = nil;
+    NSString *composed = @"Caf\u00E9 \u00C5NGSTR\u00D6M";
+    NSString *decomposedCaseVariant = @"CAFE\u0301 a\u030Angstro\u0308m";
+    XCTAssertNotNil([self createNamed:composed error:&error]);
+    XCTAssertNil([self createNamed:decomposedCaseVariant error:&error]);
+    XCTAssertEqual(error.code, DirectColorThemeStoreErrorDuplicateName);
+
+    DirectColorThemeStore *writer = [[DirectColorThemeStore alloc] initWithDirectoryURL:self.directoryURL];
+    NSMutableDictionary *duplicate = [self validSchemaOneDocumentNamed:decomposedCaseVariant];
+    error = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:duplicate options:0 error:&error];
+    NSURL *duplicateURL = [self.directoryURL URLByAppendingPathComponent:@"unicode-duplicate.json"];
+    XCTAssertTrue([data writeToURL:duplicateURL options:NSDataWritingAtomic error:&error]);
+
+    NSArray *loaded = [writer loadThemes:&error];
+    XCTAssertNil(error);
+    XCTAssertEqual(loaded.count, 1u);
+    XCTAssertEqual(writer.errors.count, 1u);
 }
 
 - (void)testDuplicateNameRejectedCaseInsensitively {

@@ -8,6 +8,14 @@ static NSError *StoreError(DirectColorThemeStoreErrorCode code, NSString *descri
     return [NSError errorWithDomain:DirectColorThemeStoreErrorDomain code:code userInfo:info];
 }
 
+static NSString *ThemeNameKey(NSString *name) {
+    if (![name isKindOfClass:NSString.class]) return nil;
+    NSString *canonical = [name precomposedStringWithCanonicalMapping];
+    NSString *folded = [canonical stringByFoldingWithOptions:NSCaseInsensitiveSearch
+                                                      locale:[NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"]];
+    return [folded precomposedStringWithCanonicalMapping];
+}
+
 @interface DirectColorTheme (StoreAccess)
 @property (nonatomic, copy, readwrite) NSString *identifier;
 @property (nonatomic, copy, readwrite) NSString *name;
@@ -46,7 +54,7 @@ static NSError *StoreError(DirectColorThemeStoreErrorCode code, NSString *descri
 
 - (NSArray<DirectColorTheme *> *)sortedThemes:(NSArray<DirectColorTheme *> *)themes {
     return [themes sortedArrayUsingComparator:^NSComparisonResult(DirectColorTheme *a, DirectColorTheme *b) {
-        NSComparisonResult byName = [a.name caseInsensitiveCompare:b.name];
+        NSComparisonResult byName = [ThemeNameKey(a.name) compare:ThemeNameKey(b.name)];
         return byName == NSOrderedSame ? [a.identifier compare:b.identifier] : byName;
     }];
 }
@@ -77,7 +85,7 @@ static NSError *StoreError(DirectColorThemeStoreErrorCode code, NSString *descri
         NSData *data = [NSData dataWithContentsOfURL:url options:0 error:&underlying];
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&underlying] : nil;
         DirectColorTheme *theme = json ? [DirectColorTheme themeFromDictionary:json error:&underlying] : nil;
-        NSString *foldedName = theme.name.lowercaseString;
+        NSString *foldedName = ThemeNameKey(theme.name);
         if (theme && [names containsObject:foldedName]) {
             underlying = StoreError(DirectColorThemeStoreErrorDuplicateName,
                                     [NSString stringWithFormat:@"Theme %@ duplicates another name.", url.lastPathComponent], nil);
@@ -111,8 +119,9 @@ static NSError *StoreError(DirectColorThemeStoreErrorCode code, NSString *descri
         if (error) *error = StoreError(DirectColorThemeStoreErrorInvalidName, @"Theme name cannot be empty.", nil);
         return nil;
     }
+    NSString *nameKey = ThemeNameKey(trimmed);
     for (DirectColorTheme *theme in self.themes) {
-        if (![theme.identifier isEqualToString:identifier] && [theme.name caseInsensitiveCompare:trimmed] == NSOrderedSame) {
+        if (![theme.identifier isEqualToString:identifier] && [ThemeNameKey(theme.name) isEqualToString:nameKey]) {
             if (error) *error = StoreError(DirectColorThemeStoreErrorDuplicateName, @"A theme with this name already exists.", nil);
             return nil;
         }
