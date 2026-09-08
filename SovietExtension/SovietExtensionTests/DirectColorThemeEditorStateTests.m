@@ -25,6 +25,16 @@
     return [DirectColorTheme themeFromDictionary:document error:nil];
 }
 
+- (void)testCatppuccinMochaPinnedBackgroundUsesSidebarNotIncomingBubble {
+    NSDictionary *preset = [DirectColorThemeEditorState builtInPresets][@"catppuccin"];
+    NSDictionary *dark = preset[@"dark"];
+    XCTAssertEqualObjects(dark[@"base"], @"#1E1E2E");
+    XCTAssertEqualObjects(dark[@"sidebar"], @"#181825");
+    XCTAssertEqualObjects(dark[@"ribbon"], @"#303446");
+    XCTAssertEqualObjects(dark[@"incoming_bubble"], @"#313244");
+    XCTAssertEqualObjects(preset[@"advanced"][@"dark"][@"bg0"], @"#181825");
+}
+
 - (void)testBuiltinSelectionDeepCopiesTenColorsAndIsReadOnly {
     NSMutableDictionary *presets = [[DirectColorThemeEditorState builtInPresets] mutableCopy];
     NSMutableDictionary *catppuccin = [presets[@"catppuccin"] mutableCopy];

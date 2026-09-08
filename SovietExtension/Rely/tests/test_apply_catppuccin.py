@@ -59,6 +59,18 @@ def synthetic_fixture_with_keys(*keys):
 
 
 class DirectColorConfigTests(unittest.TestCase):
+    def test_catppuccin_mocha_pinned_background_uses_sidebar_not_incoming_bubble(self):
+        theme = apply_catppuccin.build_theme("catppuccin")
+        dark = theme["roles"]["dark"]
+        self.assertEqual(dark["base"], "1e1e2e")
+        self.assertEqual(theme["dark"]["mantle"], "181825")
+        self.assertEqual(dark["ribbon"], "303446")
+        self.assertEqual(dark["incoming_bubble"], "313244")
+        self.assertEqual(theme["advanced"]["dark"]["bg0"], "181825")
+        self.assertEqual(
+            apply_catppuccin.color_for_key(theme, "bg0", (0, 0, 0), "dark"),
+            "181825")
+
     def test_custom_schema_accepts_and_maps_all_ten_colors_directly(self):
         theme = apply_catppuccin.build_theme("", custom_config())
         self.assertEqual(theme["name"], "custom")
@@ -226,7 +238,7 @@ class DirectColorConfigTests(unittest.TestCase):
         self.assertEqual(theme["name"], "catppuccin")
         self.assertEqual(theme["roles"]["light"]["base"], apply_catppuccin.LATTE["base"])
         self.assertEqual(apply_catppuccin.color_for_key(theme, "bg0", (0, 0, 0), "dark"),
-                         "313244")
+                         "181825")
 
     def test_load_config_accepts_custom_schema_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

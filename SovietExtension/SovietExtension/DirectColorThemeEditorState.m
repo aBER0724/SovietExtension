@@ -82,7 +82,7 @@ static NSDictionary *DeepCopyPropertyList(NSDictionary *value) {
         @"catppuccin": @{@"title":@"Catppuccin",
             @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#BCC0CC", @"#CCD0DA", @"#4C4F69", @"#6C6F85", @"#7287FD", @"#1E66F5", @"#D20F39"),
             @"dark":Colors(@"#1E1E2E", @"#181825", @"#303446", @"#9399B2", @"#313244", @"#CDD6F4", @"#A6ADC8", @"#B4BEFE", @"#89B4FA", @"#F38BA8"),
-            @"advanced":@{@"light":@{}, @"dark":@{@"bg0":@"#313244"}}},
+            @"advanced":@{@"light":@{}, @"dark":@{@"bg0":@"#181825"}}},
         @"catppuccin-frappe": @{@"title":@"Frappé",
             @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#DCE8D5", @"#F7F7F9", @"#4C4F69", @"#5C5F77", @"#179299", @"#1E66F5", @"#D20F39"),
             @"dark":Colors(@"#303446", @"#292C3C", @"#232634", @"#B5D09F", @"#414559", @"#C6D0F5", @"#B5BFE2", @"#81C8BE", @"#8CAAEE", @"#E78284"), @"advanced":EmptyAdvanced()},

@@ -131,13 +131,15 @@ HEX_COLOR = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
 
 def _roles(light: dict[str, str], dark: dict[str, str], *, outgoing_light: str,
-           outgoing_dark: str, incoming_light: str, incoming_dark: str) -> dict[str, dict[str, str]]:
+           outgoing_dark: str, incoming_light: str, incoming_dark: str,
+           ribbon_dark: str | None = None) -> dict[str, dict[str, str]]:
     return {
         "light": {"base":"#" + light["base"], "ribbon":"#" + light["mantle"],
                   "outgoing_bubble":outgoing_light, "incoming_bubble":incoming_light,
                   "text":"#" + light["text"], "subtext":"#" + light["subtext1"],
                   "link":"#" + light["blue"], "accent":"#" + light["teal"]},
-        "dark": {"base":"#" + dark["base"], "ribbon":"#" + dark["mantle"],
+        "dark": {"base":"#" + dark["base"],
+                 "ribbon":ribbon_dark or ("#" + dark["mantle"]),
                  "outgoing_bubble":outgoing_dark, "incoming_bubble":incoming_dark,
                  "text":"#" + dark["text"], "subtext":"#" + dark["subtext1"],
                  "link":"#" + dark["blue"], "accent":"#" + dark["teal"]},
@@ -147,8 +149,8 @@ def _roles(light: dict[str, str], dark: dict[str, str], *, outgoing_light: str,
 PRESETS: dict[str, dict[str, Any]] = {
     "catppuccin": {"light": LATTE, "dark": MOCHA,
         "roles": _roles(LATTE, MOCHA, outgoing_light="#bcc0cc", outgoing_dark="#9399b2",
-                        incoming_light="#ccd0da", incoming_dark="#313244"),
-        "advanced": {"dark": {"bg0": "#313244"}}},
+                        incoming_light="#ccd0da", incoming_dark="#313244", ribbon_dark="#303446"),
+        "advanced": {"dark": {"bg0": "#181825"}}},
     "catppuccin-frappe": {"light": LATTE, "dark": FRAPPE,
         "roles": _roles(LATTE, FRAPPE, outgoing_light="#dce8d5", outgoing_dark="#b5d09f",
                         incoming_light="#f7f7f9", incoming_dark="#414559")},
