@@ -50,6 +50,9 @@
 <p align="center">
   <img src="https://star-history.dera.page/svg?repos=MustangYM/SovietExtension&type=Date" width="600" alt="SovietExtension Effect 3" />
 </p>
+
+---
+
 ## Global Theme / 全局主题
 
 支持对微信 4.x Qt/mmui 原生界面应用全局配色，入口：
