@@ -88,7 +88,7 @@ static NSString *YMHexFromColor(NSColor *color) {
 
 - (instancetype)init {
     NSPanel *panel=[[NSPanel alloc] initWithContentRect:NSMakeRect(0,0,820,820) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
-    panel.title=@"全局主题设置"; panel.releasedWhenClosed=NO; panel.minSize=NSMakeSize(820,820);
+    panel.title=@"全局主题设置"; panel.releasedWhenClosed=NO; panel.contentMinSize=NSMakeSize(820,820);
     if ((self=[super initWithWindow:panel])) {
         panel.delegate=self; self.colorFields=[NSMutableDictionary dictionary]; self.colorWells=[NSMutableDictionary dictionary]; self.store=[[DirectColorThemeStore alloc] init];
         [self ym_buildUI:panel.contentView]; [self ym_reloadFromDisk];
@@ -112,32 +112,34 @@ static NSString *YMHexFromColor(NSColor *color) {
 
 - (void)ym_buildUI:(NSView *)content {
     content.wantsLayer=YES; content.layer.backgroundColor=NSColor.windowBackgroundColor.CGColor;
-    [content addSubview:[self ym_label:@"命名直色主题" frame:NSMakeRect(28,777,300,30) font:[NSFont systemFontOfSize:23 weight:NSFontWeightSemibold] color:NSColor.labelColor]];
-    [content addSubview:[self ym_label:@"每个外观直接编辑十个 #RRGGBB 色值；不会生成调色板或推导颜色。" frame:NSMakeRect(28,753,650,20) font:[NSFont systemFontOfSize:12] color:NSColor.secondaryLabelColor]];
-    self.themePopup=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(28,710,300,30)]; self.themePopup.target=self; self.themePopup.action=@selector(themeChanged:); [content addSubview:self.themePopup];
-    [content addSubview:[self ym_button:@"另存为自定义主题" frame:NSMakeRect(340,710,150,30) action:@selector(duplicateTheme:)]];
-    self.renameButton=[self ym_button:@"重命名" frame:NSMakeRect(500,710,80,30) action:@selector(renameTheme:)]; [content addSubview:self.renameButton];
-    self.deleteButton=[self ym_button:@"删除" frame:NSMakeRect(590,710,70,30) action:@selector(deleteTheme:)]; [content addSubview:self.deleteButton];
-    [content addSubview:[self ym_button:@"重新载入" frame:NSMakeRect(670,710,120,30) action:@selector(reloadThemes:)]];
-    self.appearanceControl=[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(552,665,238,30)]; self.appearanceControl.segmentCount=2; [self.appearanceControl setLabel:@"浅色" forSegment:0]; [self.appearanceControl setLabel:@"深色" forSegment:1]; self.appearanceControl.target=self; self.appearanceControl.action=@selector(appearanceChanged:); [content addSubview:self.appearanceControl];
-    [content addSubview:[self ym_label:@"直接颜色" frame:NSMakeRect(28,668,150,24) font:[NSFont systemFontOfSize:15 weight:NSFontWeightSemibold] color:NSColor.labelColor]];
+    NSTextField *title=[self ym_label:@"命名直色主题" frame:NSMakeRect(28,777,300,30) font:[NSFont systemFontOfSize:23 weight:NSFontWeightSemibold] color:NSColor.labelColor];
+    title.autoresizingMask=NSViewMinYMargin; [content addSubview:title];
+    NSTextField *subtitle=[self ym_label:@"每个外观直接编辑十个 #RRGGBB 色值；不会生成调色板或推导颜色。" frame:NSMakeRect(28,753,650,20) font:[NSFont systemFontOfSize:12] color:NSColor.secondaryLabelColor];
+    subtitle.autoresizingMask=NSViewMinYMargin|NSViewWidthSizable; [content addSubview:subtitle];
+    self.themePopup=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(28,710,300,30)]; self.themePopup.autoresizingMask=NSViewMinYMargin; self.themePopup.target=self; self.themePopup.action=@selector(themeChanged:); [content addSubview:self.themePopup];
+    NSButton *duplicate=[self ym_button:@"另存为自定义主题" frame:NSMakeRect(340,710,150,30) action:@selector(duplicateTheme:)]; duplicate.autoresizingMask=NSViewMinYMargin; [content addSubview:duplicate];
+    self.renameButton=[self ym_button:@"重命名" frame:NSMakeRect(500,710,80,30) action:@selector(renameTheme:)]; self.renameButton.autoresizingMask=NSViewMinYMargin; [content addSubview:self.renameButton];
+    self.deleteButton=[self ym_button:@"删除" frame:NSMakeRect(590,710,70,30) action:@selector(deleteTheme:)]; self.deleteButton.autoresizingMask=NSViewMinYMargin; [content addSubview:self.deleteButton];
+    NSButton *reload=[self ym_button:@"重新载入" frame:NSMakeRect(670,710,120,30) action:@selector(reloadThemes:)]; reload.autoresizingMask=NSViewMinXMargin|NSViewMinYMargin; [content addSubview:reload];
+    self.appearanceControl=[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(552,665,238,30)]; self.appearanceControl.autoresizingMask=NSViewMinXMargin|NSViewMinYMargin; self.appearanceControl.segmentCount=2; [self.appearanceControl setLabel:@"浅色" forSegment:0]; [self.appearanceControl setLabel:@"深色" forSegment:1]; self.appearanceControl.target=self; self.appearanceControl.action=@selector(appearanceChanged:); [content addSubview:self.appearanceControl];
+    NSTextField *colorsTitle=[self ym_label:@"直接颜色" frame:NSMakeRect(28,668,150,24) font:[NSFont systemFontOfSize:15 weight:NSFontWeightSemibold] color:NSColor.labelColor]; colorsTitle.autoresizingMask=NSViewMinYMargin; [content addSubview:colorsTitle];
 
     NSArray *keys=YMColorKeys(); NSDictionary *titles=YMColorTitles();
     for (NSInteger i=0;i<keys.count;i++) {
         NSInteger column=i/5,row=i%5; CGFloat x=28+column*260,y=620-row*43; NSString *key=keys[i];
-        [content addSubview:[self ym_label:titles[key] frame:NSMakeRect(x,y,88,24) font:[NSFont systemFontOfSize:12] color:NSColor.labelColor]];
-        NSTextField *field=[[NSTextField alloc] initWithFrame:NSMakeRect(x+90,y,105,25)]; field.font=[NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular]; field.delegate=self; field.identifier=key; field.placeholderString=@"#RRGGBB"; self.colorFields[key]=field; [content addSubview:field];
-        NSColorWell *well=[[NSColorWell alloc] initWithFrame:NSMakeRect(x+202,y,42,25)]; well.tag=i; well.target=self; well.action=@selector(colorWellChanged:); self.colorWells[key]=well; [content addSubview:well];
+        NSTextField *label=[self ym_label:titles[key] frame:NSMakeRect(x,y,88,24) font:[NSFont systemFontOfSize:12] color:NSColor.labelColor]; label.autoresizingMask=NSViewMinYMargin; [content addSubview:label];
+        NSTextField *field=[[NSTextField alloc] initWithFrame:NSMakeRect(x+90,y,105,25)]; field.autoresizingMask=NSViewMinYMargin; field.font=[NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular]; field.delegate=self; field.identifier=key; field.placeholderString=@"#RRGGBB"; self.colorFields[key]=field; [content addSubview:field];
+        NSColorWell *well=[[NSColorWell alloc] initWithFrame:NSMakeRect(x+202,y,42,25)]; well.autoresizingMask=NSViewMinYMargin; well.tag=i; well.target=self; well.action=@selector(colorWellChanged:); self.colorWells[key]=well; [content addSubview:well];
     }
-    self.previewView=[[YMThemePreviewView alloc] initWithFrame:NSMakeRect(548,447,242,176)]; self.previewView.wantsLayer=YES; self.previewView.layer.cornerRadius=10; self.previewView.layer.masksToBounds=YES; self.previewView.layer.borderWidth=1; self.previewView.layer.borderColor=NSColor.separatorColor.CGColor; [content addSubview:self.previewView];
+    self.previewView=[[YMThemePreviewView alloc] initWithFrame:NSMakeRect(548,447,242,176)]; self.previewView.autoresizingMask=NSViewMinXMargin|NSViewMinYMargin; self.previewView.wantsLayer=YES; self.previewView.layer.cornerRadius=10; self.previewView.layer.masksToBounds=YES; self.previewView.layer.borderWidth=1; self.previewView.layer.borderColor=NSColor.separatorColor.CGColor; [content addSubview:self.previewView];
 
-    [content addSubview:[self ym_label:@"专家设置：微信原始主题键覆盖" frame:NSMakeRect(28,380,360,24) font:[NSFont systemFontOfSize:15 weight:NSFontWeightSemibold] color:NSColor.labelColor]];
-    [content addSubview:[self ym_label:@"仅供专家使用。JSON 必须包含 light 与 dark 对象；键名由 Python 预检对真实 dylib 验证。" frame:NSMakeRect(28,358,750,20) font:[NSFont systemFontOfSize:11] color:NSColor.secondaryLabelColor]];
-    NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(28,116,762,235)]; scroll.hasVerticalScroller=YES; scroll.borderType=NSBezelBorder;
-    self.advancedTextView=[[NSTextView alloc] initWithFrame:scroll.bounds]; self.advancedTextView.font=[NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular]; self.advancedTextView.delegate=self; scroll.documentView=self.advancedTextView; [content addSubview:scroll];
-    self.statusLabel=[self ym_label:@"" frame:NSMakeRect(28,78,580,30) font:[NSFont systemFontOfSize:11] color:NSColor.secondaryLabelColor]; self.statusLabel.maximumNumberOfLines=2; [content addSubview:self.statusLabel];
-    [content addSubview:[self ym_button:@"关闭" frame:NSMakeRect(596,32,90,34) action:@selector(closeWindow:)]];
-    NSButton *apply=[self ym_button:@"应用并重启" frame:NSMakeRect(696,32,94,34) action:@selector(applyAndRestart:)]; apply.keyEquivalent=@"\r"; [content addSubview:apply];
+    NSTextField *advancedTitle=[self ym_label:@"专家设置：微信原始主题键覆盖" frame:NSMakeRect(28,380,360,24) font:[NSFont systemFontOfSize:15 weight:NSFontWeightSemibold] color:NSColor.labelColor]; advancedTitle.autoresizingMask=NSViewMinYMargin; [content addSubview:advancedTitle];
+    NSTextField *advancedHelp=[self ym_label:@"仅供专家使用。JSON 必须包含 light 与 dark 对象；键名由 Python 预检对真实 dylib 验证。" frame:NSMakeRect(28,358,750,20) font:[NSFont systemFontOfSize:11] color:NSColor.secondaryLabelColor]; advancedHelp.autoresizingMask=NSViewMinYMargin|NSViewWidthSizable; [content addSubview:advancedHelp];
+    NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(28,116,762,235)]; scroll.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable; scroll.hasVerticalScroller=YES; scroll.borderType=NSBezelBorder;
+    self.advancedTextView=[[NSTextView alloc] initWithFrame:scroll.bounds]; self.advancedTextView.autoresizingMask=NSViewWidthSizable; self.advancedTextView.horizontallyResizable=NO; self.advancedTextView.textContainer.widthTracksTextView=YES; self.advancedTextView.font=[NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular]; self.advancedTextView.delegate=self; scroll.documentView=self.advancedTextView; [content addSubview:scroll];
+    self.statusLabel=[self ym_label:@"" frame:NSMakeRect(28,78,580,30) font:[NSFont systemFontOfSize:11] color:NSColor.secondaryLabelColor]; self.statusLabel.autoresizingMask=NSViewWidthSizable; self.statusLabel.maximumNumberOfLines=2; [content addSubview:self.statusLabel];
+    NSButton *close=[self ym_button:@"关闭" frame:NSMakeRect(596,32,90,34) action:@selector(closeWindow:)]; close.autoresizingMask=NSViewMinXMargin; [content addSubview:close];
+    NSButton *apply=[self ym_button:@"应用并重启" frame:NSMakeRect(696,32,94,34) action:@selector(applyAndRestart:)]; apply.autoresizingMask=NSViewMinXMargin; apply.keyEquivalent=@"\r"; [content addSubview:apply];
 }
 
 - (NSString *)ym_supportDirectory { return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/SovietExtension"]; }
