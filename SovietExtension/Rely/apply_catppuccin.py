@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import colorsys
 import json
+import os
 import re
 import shutil
 import struct
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -122,6 +124,9 @@ EXACT = {
     "clawbot_interact_button_disable_fgcolor":"overlay0",
 }
 CORE_TONES = {"base", "ribbon", "outgoing_bubble", "incoming_bubble", "text", "subtext", "link", "accent"}
+DIRECT_COLORS = {"base", "sidebar", "ribbon", "outgoing_bubble", "incoming_bubble",
+                 "text", "subtext", "accent", "link", "danger"}
+CUSTOM_ROOT_FIELDS = {"schema_version", "preset", "custom_theme_id", "light", "dark", "advanced"}
 HEX_COLOR = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
 
@@ -186,15 +191,102 @@ def load_config(path: Path | None) -> dict[str, Any]:
         raise ValueError(f"cannot read config {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise ValueError("config root must be a JSON object")
-    allowed = {"preset", "light", "dark", "advanced"}
+    allowed = (CUSTOM_ROOT_FIELDS if value.get("schema_version") == 2
+               else {"preset", "light", "dark", "advanced"})
     unknown = sorted(set(value) - allowed)
     if unknown:
         raise ValueError(f"unknown config keys: {', '.join(unknown)}")
     return value
 
 
+def _valid_advanced_key(key: str) -> bool:
+    lower = key.lower()
+    if key in EXACT or semantic_role(key) is not None:
+        return True
+    return any(lower == prefix or lower.startswith(prefix + "_") for prefix in FAMILY)
+
+
+def _parse_advanced(config: dict[str, Any], theme: dict[str, Any]) -> None:
+    advanced = config.get("advanced", {})
+    if not isinstance(advanced, dict):
+        raise ValueError("config advanced must be an object")
+    for key, value in advanced.items():
+        if key in ("light", "dark"):
+            if not isinstance(value, dict):
+                raise ValueError(f"advanced.{key} must be an object")
+            for named_key, color in value.items():
+                named_key = str(named_key)
+                if not _valid_advanced_key(named_key):
+                    raise ValueError(f"unknown advanced named key: {named_key}")
+                try:
+                    theme["advanced"][key][named_key] = parse_color(color)
+                except ValueError as exc:
+                    raise ValueError(f"advanced.{key}.{named_key}: {exc}") from exc
+        else:
+            if not _valid_advanced_key(str(key)):
+                raise ValueError(f"unknown advanced named key: {key}")
+            if isinstance(value, str):
+                color = parse_color(value)
+                theme["advanced"]["light"][key] = color
+                theme["advanced"]["dark"][key] = color
+            elif isinstance(value, dict):
+                unknown = sorted(set(value) - {"light", "dark"})
+                if unknown or not value:
+                    raise ValueError(f"advanced.{key} must contain only light/dark")
+                for side, color in value.items():
+                    theme["advanced"][side][key] = parse_color(color)
+            else:
+                raise ValueError(f"advanced.{key} must be a color or light/dark object")
+
+
+def _build_custom_theme(config: dict[str, Any]) -> dict[str, Any]:
+    unknown = sorted(set(config) - CUSTOM_ROOT_FIELDS)
+    if unknown:
+        raise ValueError(f"unknown config keys: {', '.join(unknown)}")
+    missing_root = sorted(CUSTOM_ROOT_FIELDS - set(config))
+    if missing_root:
+        raise ValueError(f"missing config keys: {', '.join(missing_root)}")
+    if config["schema_version"] != 2:
+        raise ValueError("custom schema_version must be 2")
+    if config["preset"] is not None:
+        raise ValueError("custom config preset must be null")
+    theme_id = config["custom_theme_id"]
+    if not isinstance(theme_id, str):
+        raise ValueError("custom_theme_id must be a valid UUID string")
+    try:
+        uuid.UUID(theme_id)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("custom_theme_id must be a valid UUID string") from exc
+
+    theme: dict[str, Any] = {
+        "name": "custom", "custom_theme_id": theme_id,
+        "roles": {"light": {}, "dark": {}},
+        "advanced": {"light": {}, "dark": {}},
+        "direct": True,
+    }
+    for side in ("light", "dark"):
+        colors = config[side]
+        if not isinstance(colors, dict):
+            raise ValueError(f"config {side} must be an object")
+        missing = sorted(DIRECT_COLORS - set(colors))
+        unknown = sorted(set(colors) - DIRECT_COLORS)
+        if missing:
+            raise ValueError(f"config {side} missing colors: {', '.join(missing)}")
+        if unknown:
+            raise ValueError(f"config {side} unknown colors: {', '.join(unknown)}")
+        for key, value in colors.items():
+            try:
+                theme["roles"][side][key] = parse_color(value)
+            except ValueError as exc:
+                raise ValueError(f"config {side}.{key}: {exc}") from exc
+    _parse_advanced(config, theme)
+    return theme
+
+
 def build_theme(preset: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or {}
+    if config.get("schema_version") == 2 or "custom_theme_id" in config:
+        return _build_custom_theme(config)
     config_preset = config.get("preset")
     if config_preset is not None and not isinstance(config_preset, str):
         raise ValueError("config preset must be a string")
@@ -220,27 +312,7 @@ def build_theme(preset: str, config: dict[str, Any] | None = None) -> dict[str, 
         for key, value in overrides.items():
             theme["roles"][side][key] = parse_color(value)
 
-    advanced = config.get("advanced", {})
-    if not isinstance(advanced, dict):
-        raise ValueError("config advanced must be an object")
-    for key, value in advanced.items():
-        if key in ("light", "dark"):
-            if not isinstance(value, dict):
-                raise ValueError(f"advanced.{key} must be an object")
-            for named_key, color in value.items():
-                theme["advanced"][key][str(named_key)] = parse_color(color)
-        elif isinstance(value, str):
-            color = parse_color(value)
-            theme["advanced"]["light"][key] = color
-            theme["advanced"]["dark"][key] = color
-        elif isinstance(value, dict):
-            unknown = sorted(set(value) - {"light", "dark"})
-            if unknown or not value:
-                raise ValueError(f"advanced.{key} must contain only light/dark")
-            for side, color in value.items():
-                theme["advanced"][side][key] = parse_color(color)
-        else:
-            raise ValueError(f"advanced.{key} must be a color or light/dark object")
+    _parse_advanced(config, theme)
     return theme
 
 
@@ -295,12 +367,16 @@ def semantic_role(key: str) -> str | None:
         return "incoming_bubble"
     if lower in {"bg1", "bg2", "flow_layer", "sns_bg", "chat_brand_page_bkg"}:
         return "base"
-    if lower in {"bg0", "bg3", "bg_sidebar_alt", "navigation_bar", "flow_toolbar_bg"} or "ribbon" in lower:
+    if lower == "bg_sidebar_alt":
+        return "sidebar"
+    if lower in {"bg0", "bg3", "navigation_bar", "flow_toolbar_bg"} or "ribbon" in lower:
         return "ribbon"
     if lower == "link" or lower.startswith("link_") or "hyperlink" in lower:
         return "link"
     if lower in {"fg_brand", "fg_brand_self", "chat_input_hit_border_color"} or lower.startswith("brand_"):
         return "accent"
+    if lower == "red" or lower.startswith("red_") or lower == "recording_cancel_end_color":
+        return "danger"
     if lower in {"fg1", "fg2", "fg3", "text2", "text3", "glyph1", "glyph2"} or "subtitle" in lower:
         return "subtext"
     if lower in {"fg0", "text1", "glyph0", "glyph_black", "glyph_selected_title"}:
@@ -308,13 +384,33 @@ def semantic_role(key: str) -> str | None:
     return None
 
 
+def direct_fallback_role(key: str) -> str:
+    lower = key.lower()
+    if "danger" in lower or lower == "red" or lower.startswith("red_") or "cancel" in lower:
+        return "danger"
+    if "brand" in lower or "selected" in lower or "active" in lower or "highlight" in lower:
+        return "accent"
+    if "link" in lower:
+        return "link"
+    if "sidebar" in lower:
+        return "sidebar"
+    if any(word in lower for word in ("bg", "background", "bkg", "bar", "window", "dialog",
+                                       "toolbar", "layer", "mask", "cover")):
+        return "base"
+    if any(word in lower for word in ("subtext", "subtitle", "secondary", "disabled")):
+        return "subtext"
+    return "text"
+
+
 def color_for_key(theme: dict[str, Any], key: str, old_rgb: tuple[int, int, int], side: str) -> str:
     advanced = theme["advanced"][side]
     if key in advanced:
         return advanced[key]
     role = semantic_role(key)
-    if role:
+    if role and role in theme["roles"][side]:
         return theme["roles"][side][role]
+    if theme.get("direct"):
+        return theme["roles"][side][direct_fallback_role(key)]
     tone = semantic_tone(key, old_rgb, side == "dark", theme[side])
     return theme[side][tone]
 
@@ -423,16 +519,35 @@ def patch_bytes(source: bytes, theme: dict[str, Any], *,
 def patch(path: Path, backup: Path | None, theme: dict[str, Any] | None = None,
           *, resolved_color_keys: set[str] | None = None) -> int:
     theme = theme or build_theme("catppuccin")
-    if backup:
-        if backup.exists():
-            shutil.copy2(backup, path)
-            print(f"source restored from backup: {backup}")
-        else:
-            shutil.copy2(path, backup)
+    if backup and backup.exists():
+        source = backup.read_bytes()
+        print(f"source loaded from backup: {backup}")
+    else:
+        source = path.read_bytes()
+        if backup:
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=backup.parent, prefix=f".{backup.name}.",
+                                             delete=False) as handle:
+                backup_temp = Path(handle.name)
+                handle.write(source)
+            try:
+                shutil.copystat(path, backup_temp)
+                os.replace(backup_temp, backup)
+            finally:
+                backup_temp.unlink(missing_ok=True)
             print(f"backup: {backup}")
+
     output, patched, key_count = patch_bytes(
-        path.read_bytes(), theme, resolved_color_keys=resolved_color_keys)
-    path.write_bytes(output)
+        source, theme, resolved_color_keys=resolved_color_keys)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.",
+                                     delete=False) as handle:
+        output_temp = Path(handle.name)
+        handle.write(output)
+    try:
+        shutil.copystat(path, output_temp)
+        os.replace(output_temp, path)
+    finally:
+        output_temp.unlink(missing_ok=True)
     resolved_note = " (including resolved colors)" if resolved_color_keys else ""
     print(f"preset={theme['name']}: patched={patched}, unique named colors={key_count}{resolved_note}")
     return patched
@@ -471,6 +586,21 @@ def self_test(source: Path | None = None) -> dict[str, Any]:
         assert set(theme["roles"]["light"]) == CORE_TONES
         assert set(theme["roles"]["dark"]) == CORE_TONES
 
+    custom_colors = {
+        "base":"#010203", "sidebar":"#111213", "ribbon":"#212223",
+        "outgoing_bubble":"#313233", "incoming_bubble":"#414243", "text":"#515253",
+        "subtext":"#616263", "accent":"#717273", "link":"#818283", "danger":"#919293",
+    }
+    custom = build_theme("", {
+        "schema_version": 2, "preset": None,
+        "custom_theme_id": "12345678-1234-5678-1234-567812345678",
+        "light": custom_colors, "dark": custom_colors,
+        "advanced": {"light": {"bg0": "#abcdef"}, "dark": {}},
+    })
+    assert color_for_key(custom, "bg_sidebar_alt", (0, 0, 0), "light") == "111213"
+    assert color_for_key(custom, "recording_cancel_end_color", (0, 0, 0), "dark") == "919293"
+    assert color_for_key(custom, "bg0", (0, 0, 0), "light") == "abcdef"
+
     payload = source.read_bytes() if source else _synthetic_fixture()
     patch_counts: dict[str, int] = {}
     with tempfile.TemporaryDirectory(prefix="wechat-theme-self-test-") as directory:
@@ -482,7 +612,12 @@ def self_test(source: Path | None = None) -> dict[str, Any]:
             if offline.read_bytes() == payload:
                 raise AssertionError(f"{name} structure patch produced no changes")
             patch_counts[name] = patched
+        custom_output, custom_patched, _ = patch_bytes(payload, custom)
+        if custom_output == payload:
+            raise AssertionError("custom direct-color structure patch produced no changes")
+        patch_counts["custom"] = custom_patched
     return {"ok": True, "presets_tested": ["catppuccin", "gruvbox", "tokyo-night"],
+            "custom_direct_color_tested": True,
             "structure_source": str(source) if source else "synthetic", "patched": patch_counts}
 
 
