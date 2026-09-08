@@ -422,26 +422,34 @@ def parse_fat_slices(data: bytes | bytearray) -> list[tuple[int, int]]:
     return result
 
 
+def _validated_named_records(source: bytes | bytearray, base: int, size: int,
+                             record_type: int) -> list[tuple[int, str]]:
+    records: list[tuple[int, str]] = []
+    end = base + size
+    minimum_size = 28 if record_type == 3 else 24
+    for off in range(base, max(base, end - 47), 8):
+        if off + minimum_size > end or source[off:off+8] != b"\0" * 8:
+            continue
+        ptr, tag, actual_type = struct.unpack_from("<III", source, off + 8)
+        if tag != 0x00600000 or actual_type != record_type or not (0 < ptr < size):
+            continue
+        string_pos = base + ptr
+        zero = source.find(b"\0", string_pos, min(string_pos + 128, end))
+        if zero < 0:
+            continue
+        try:
+            key = bytes(source[string_pos:zero]).decode("ascii")
+        except UnicodeDecodeError:
+            continue
+        if key and all(c.isalnum() or c in "_./:-" for c in key):
+            records.append((off, key))
+    return records
+
+
 def _type3_records(source: bytes, slices: list[tuple[int, int]]) -> list[tuple[int, str]]:
     records: list[tuple[int, str]] = []
     for base, size in slices:
-        end = base + size
-        for off in range(base, max(base, end - 47), 8):
-            if off + 28 > end or source[off:off+8] != b"\0" * 8:
-                continue
-            ptr, tag, record_type = struct.unpack_from("<III", source, off + 8)
-            if tag != 0x00600000 or record_type != 3 or not (0 < ptr < size):
-                continue
-            string_pos = base + ptr
-            zero = source.find(b"\0", string_pos, min(string_pos + 128, end))
-            if zero < 0:
-                continue
-            try:
-                key = source[string_pos:zero].decode("ascii")
-            except UnicodeDecodeError:
-                continue
-            if key and all(c.isalnum() or c in "_./:-" for c in key):
-                records.append((off, key))
+        records.extend(_validated_named_records(source, base, size, 3))
     return records
 
 
@@ -480,43 +488,37 @@ def patch_bytes(source: bytes, theme: dict[str, Any], *,
     # appearance. Only synchronize records that strictly mirror a validated
     # type=3 base key; unrelated type=1 records and type=243 remain untouched.
     if resolved_color_keys:
-        for base, size in slices:
-            end = base + size
-            for off in range(base, max(base, end - 47), 8):
-                if off + 24 > end or data[off:off+8] != b"\0" * 8:
-                    continue
-                ptr, tag, record_type = struct.unpack_from("<III", data, off + 8)
-                if tag != 0x00600000 or record_type != 1 or not (0 < ptr < size):
-                    continue
-                string_pos = base + ptr
-                zero = data.find(0, string_pos, min(string_pos + 128, end))
-                if zero < 0:
-                    continue
-                try:
-                    key = bytes(data[string_pos:zero]).decode("ascii")
-                except UnicodeDecodeError:
-                    continue
-                if key.endswith("_aqua"):
-                    canonical, side = key[:-5], "light"
-                elif key.endswith("_dark"):
-                    canonical, side = key[:-5], "dark"
-                else:
-                    continue
-                if canonical not in keys or canonical not in resolved_color_keys:
-                    continue
-                color_pos = off + 20
-                old = bytes(data[color_pos:color_pos+4])
-                old_rgb = (old[3], old[2], old[1])
-                replacement = encoded(color_for_key(theme, canonical, old_rgb, side), old[0])
-                if old != replacement:
-                    data[color_pos:color_pos+4] = replacement
-                    patched += 1
-                    resolved_patched += 1
-        expected_minimum = len(resolved_color_keys) * len(slices)
-        if resolved_patched < expected_minimum:
-            raise RuntimeError(
-                f"refusing unsafe resolved-color patch: patched={resolved_patched}, "
-                f"expected at least {expected_minimum}")
+        resolved_records: list[tuple[int, str, str]] = []
+        for slice_index, (base, size) in enumerate(slices):
+            canonical_in_slice = {
+                key for _, key in _validated_named_records(source, base, size, 3)
+            }
+            type1_by_name: dict[str, list[int]] = {}
+            for off, name in _validated_named_records(source, base, size, 1):
+                type1_by_name.setdefault(name, []).append(off)
+            for canonical in sorted(resolved_color_keys):
+                if canonical not in canonical_in_slice:
+                    raise RuntimeError(
+                        f"refusing unsafe resolved-color patch: slice={slice_index}, "
+                        f"missing canonical type=3 key {canonical}")
+                for suffix, side in (("aqua", "light"), ("dark", "dark")):
+                    name = f"{canonical}_{suffix}"
+                    matches = type1_by_name.get(name, [])
+                    if len(matches) != 1:
+                        raise RuntimeError(
+                            f"refusing unsafe resolved-color patch: slice={slice_index}, "
+                            f"expected exactly one type=1 mirror {name}, found={len(matches)}")
+                    resolved_records.append((matches[0], canonical, side))
+
+        for off, canonical, side in resolved_records:
+            color_pos = off + 20
+            old = bytes(data[color_pos:color_pos+4])
+            old_rgb = (old[3], old[2], old[1])
+            replacement = encoded(color_for_key(theme, canonical, old_rgb, side), old[0])
+            if old != replacement:
+                data[color_pos:color_pos+4] = replacement
+                patched += 1
+                resolved_patched += 1
 
     if patched - resolved_patched < 350 or len(keys) < 190:
         raise RuntimeError(

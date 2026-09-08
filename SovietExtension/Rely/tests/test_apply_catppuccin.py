@@ -42,20 +42,73 @@ def custom_config():
 
 
 def synthetic_fixture_with_keys(*keys):
-    count = max(400, len(keys))
-    record_area = count * 32
+    return synthetic_slice_with_records(keys)
+
+
+def synthetic_slice_with_records(canonical_keys, resolved_keys=(), *, omitted_resolved=(),
+                                 include_type243=True):
+    canonical_keys = list(canonical_keys)
+    type1_names = [f"{key}_{side}" for key in resolved_keys for side in ("aqua", "dark")
+                   if f"{key}_{side}" not in set(omitted_resolved)]
+    records = [(name, 3) for name in canonical_keys]
+    records.extend((f"verified_color_{index:03d}", 3)
+                   for index in range(max(400, len(canonical_keys)) - len(canonical_keys)))
+    records.extend((name, 1) for name in type1_names)
+    if include_type243:
+        records.append(("unrelated_special", 243))
+    record_area = len(records) * 32
     strings = bytearray()
     pointers = []
-    names = list(keys) + [f"verified_color_{index:03d}" for index in range(count - len(keys))]
-    for name in names:
+    for name, _ in records:
         pointers.append(record_area + len(strings))
         strings.extend((name + "\0").encode("ascii"))
     data = bytearray(record_area) + strings
-    for index, pointer in enumerate(pointers):
+    for index, ((_, record_type), pointer) in enumerate(zip(records, pointers)):
         off = index * 32
-        apply_catppuccin.struct.pack_into("<III", data, off + 8, pointer, 0x00600000, 3)
-        data[off + 20:off + 28] = bytes((200, 30, 60, 90, 155, 180, 120, 40))
+        apply_catppuccin.struct.pack_into(
+            "<III", data, off + 8, pointer, 0x00600000, record_type)
+        if record_type == 3:
+            data[off + 20:off + 28] = bytes((200, 30, 60, 90, 155, 180, 120, 40))
+        else:
+            data[off + 20:off + 24] = bytes((77, 33, 66, 99))
     return bytes(data)
+
+
+def synthetic_fat_fixture(slices):
+    header_size = 8 + len(slices) * 20
+    offsets = []
+    cursor = (header_size + 7) & ~7
+    for payload in slices:
+        offsets.append(cursor)
+        cursor = (cursor + len(payload) + 7) & ~7
+    data = bytearray(cursor)
+    data[:4] = bytes.fromhex("cafebabe")
+    apply_catppuccin.struct.pack_into(">I", data, 4, len(slices))
+    for index, (offset, payload) in enumerate(zip(offsets, slices)):
+        apply_catppuccin.struct.pack_into(
+            ">IIIII", data, 8 + index * 20, 0x0100000C, index, offset, len(payload), 3)
+        data[offset:offset + len(payload)] = payload
+    return bytes(data)
+
+
+def structured_records(payload):
+    result = []
+    for slice_index, (base, size) in enumerate(apply_catppuccin.parse_fat_slices(payload)):
+        end = base + size
+        for off in range(base, max(base, end - 47), 8):
+            if off + 28 > end or payload[off:off + 8] != b"\0" * 8:
+                continue
+            pointer, tag, record_type = apply_catppuccin.struct.unpack_from("<III", payload, off + 8)
+            if tag != 0x00600000 or not (0 < pointer < size):
+                continue
+            start = base + pointer
+            zero = payload.find(b"\0", start, min(start + 128, end))
+            if zero < 0:
+                continue
+            name = payload[start:zero].decode("ascii")
+            width = 8 if record_type == 3 else 4
+            result.append((slice_index, name, record_type, payload[off + 20:off + 20 + width]))
+    return result
 
 
 class DirectColorConfigTests(unittest.TestCase):
@@ -239,6 +292,69 @@ class DirectColorConfigTests(unittest.TestCase):
         self.assertEqual(theme["roles"]["light"]["base"], apply_catppuccin.LATTE["base"])
         self.assertEqual(apply_catppuccin.color_for_key(theme, "bg0", (0, 0, 0), "dark"),
                          "181825")
+
+    def test_resolved_type1_mirrors_are_opt_in_strict_and_alpha_preserving(self):
+        source = synthetic_fat_fixture([
+            synthetic_slice_with_records(("bg0", "bg1", "bg2"), ("bg1", "bg2")),
+            synthetic_slice_with_records(("bg0", "bg1", "bg2"), ("bg1", "bg2")),
+        ])
+        theme = apply_catppuccin.build_theme("catppuccin")
+        before = structured_records(source)
+
+        default_output, _, _ = apply_catppuccin.patch_bytes(source, theme)
+        default_records = structured_records(default_output)
+        self.assertEqual(
+            [record for record in before if record[2] == 1],
+            [record for record in default_records if record[2] == 1])
+
+        output, patched, _ = apply_catppuccin.patch_bytes(
+            source, theme, resolved_color_keys={"bg1", "bg2"})
+        after = structured_records(output)
+        before_by_id = {(s, key, kind): value for s, key, kind, value in before}
+        after_by_id = {(s, key, kind): value for s, key, kind, value in after}
+        changed_type1 = []
+        for identity, old in before_by_id.items():
+            if identity[2] == 1 and after_by_id[identity] != old:
+                changed_type1.append(identity)
+                self.assertEqual(after_by_id[identity][0], old[0])
+        self.assertEqual(set(changed_type1), {
+            (slice_index, f"{key}_{side}", 1)
+            for slice_index in (0, 1)
+            for key in ("bg1", "bg2")
+            for side in ("aqua", "dark")
+        })
+        self.assertEqual(len(changed_type1), 8)
+        self.assertGreaterEqual(patched, 708)
+        self.assertEqual(
+            [record for record in before if record[2] == 243],
+            [record for record in after if record[2] == 243])
+
+    def test_resolved_type1_missing_mirror_slice_or_canonical_fails_closed(self):
+        cases = {
+            "missing mirror": [
+                synthetic_slice_with_records(("bg0", "bg1", "bg2"), ("bg1", "bg2"),
+                                             omitted_resolved=("bg2_dark",)),
+                synthetic_slice_with_records(("bg0", "bg1", "bg2"), ("bg1", "bg2")),
+            ],
+            "missing slice": [
+                synthetic_slice_with_records(("bg0", "bg1", "bg2"), ("bg1", "bg2")),
+                synthetic_slice_with_records(("bg0", "bg1", "bg2"), ()),
+            ],
+            "missing canonical": [
+                synthetic_slice_with_records(("bg0", "bg1", "bg2"), ("bg1", "bg2")),
+                synthetic_slice_with_records(("bg0", "bg1"), ("bg1", "bg2")),
+            ],
+        }
+        theme = apply_catppuccin.build_theme("catppuccin")
+        for label, slices in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                source = synthetic_fat_fixture(slices)
+                live = Path(directory) / "live.dylib"
+                live.write_bytes(source)
+                with self.assertRaisesRegex(RuntimeError, "resolved-color"):
+                    apply_catppuccin.patch(
+                        live, None, theme, resolved_color_keys={"bg1", "bg2"})
+                self.assertEqual(live.read_bytes(), source)
 
     def test_load_config_accepts_custom_schema_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

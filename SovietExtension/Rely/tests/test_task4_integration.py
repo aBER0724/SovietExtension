@@ -95,9 +95,19 @@ class PreflightIntegrationTests(unittest.TestCase):
             for path, snapshot in before.items():
                 self.assertEqual((path.read_bytes(), stat.S_IMODE(path.stat().st_mode)), snapshot)
 
-    def test_apply_shell_preflight_precedes_every_quit_or_kill(self):
+    def test_apply_shell_preflight_and_patch_share_resolved_arguments_before_quit(self):
         text = (RELY_DIR / "apply_theme.sh").read_text(encoding="utf-8")
-        preflight = text.index("--preflight")
+        expected = 'RESOLVED_COLOR_ARGS=(--patch-resolved-key bg1 --patch-resolved-key bg2)'
+        self.assertIn(expected, text)
+        invocations = [line for line in text.splitlines()
+                       if line.startswith('/usr/bin/python3 "${PATCHER}"')]
+        self.assertEqual(len(invocations), 2)
+        common = '"${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}" "${RESOLVED_COLOR_ARGS[@]}"'
+        self.assertIn(common, invocations[0])
+        self.assertIn(common, invocations[1])
+        self.assertTrue(invocations[0].endswith(" --preflight"))
+        self.assertFalse(invocations[1].endswith(" --preflight"))
+        preflight = text.index(invocations[0])
         self.assertLess(preflight, text.index("osascript"))
         self.assertLess(preflight, text.index("pkill"))
 
