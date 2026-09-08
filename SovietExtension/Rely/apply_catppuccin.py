@@ -296,9 +296,9 @@ def build_theme(preset: str, config: dict[str, Any] | None = None) -> dict[str, 
         overrides = config.get(side, {})
         if not isinstance(overrides, dict):
             raise ValueError(f"config {side} must be an object")
-        unknown = sorted(set(overrides) - CORE_TONES)
+        unknown = sorted(set(overrides) - DIRECT_COLORS)
         if unknown:
-            raise ValueError(f"unknown {side} semantic tones: {', '.join(unknown)}")
+            raise ValueError(f"unknown {side} direct colors: {', '.join(unknown)}")
         for key, value in overrides.items():
             theme["roles"][side][key] = parse_color(value)
 

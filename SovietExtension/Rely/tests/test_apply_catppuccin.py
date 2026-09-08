@@ -85,6 +85,37 @@ class DirectColorConfigTests(unittest.TestCase):
                     apply_catppuccin.color_for_key(theme, named_key, (9, 8, 7), "light"),
                     TEN_COLORS[role][1:].lower())
 
+    def test_preset_config_accepts_all_ten_direct_colors_and_maps_sidebar_and_danger(self):
+        dark_colors = {key: "#" + format(int(value[1:], 16) + 0x030303, "06x")
+                       for key, value in TEN_COLORS.items()}
+        theme = apply_catppuccin.build_theme("", {
+            "preset": "catppuccin",
+            "light": dict(TEN_COLORS),
+            "dark": dark_colors,
+        })
+
+        self.assertEqual(theme["name"], "catppuccin")
+        self.assertEqual(theme["roles"]["light"]["sidebar"], "111213")
+        self.assertEqual(theme["roles"]["light"]["danger"], "919293")
+        self.assertEqual(theme["roles"]["dark"]["sidebar"], dark_colors["sidebar"][1:])
+        self.assertEqual(theme["roles"]["dark"]["danger"], dark_colors["danger"][1:])
+        self.assertEqual(
+            apply_catppuccin.color_for_key(theme, "bg_sidebar_alt", (0, 0, 0), "light"),
+            "111213")
+        self.assertEqual(
+            apply_catppuccin.color_for_key(theme, "red", (0, 0, 0), "dark"),
+            dark_colors["danger"][1:])
+
+    def test_preset_config_rejects_an_unknown_eleventh_direct_color(self):
+        colors = dict(TEN_COLORS)
+        colors["generated_tone"] = "#abcdef"
+        with self.assertRaisesRegex(ValueError, r"unknown light.*generated_tone"):
+            apply_catppuccin.build_theme("", {
+                "preset": "catppuccin",
+                "light": colors,
+                "dark": dict(TEN_COLORS),
+            })
+
     def test_custom_missing_and_extra_color_keys_are_field_specific(self):
         missing = custom_config()
         del missing["light"]["danger"]
