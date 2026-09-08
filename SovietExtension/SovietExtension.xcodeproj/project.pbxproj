@@ -6,8 +6,20 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		DC0000010000000000000001 /* DirectColorThemeStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000001 /* DirectColorThemeStoreTests.m */; };
+		DC0000010000000000000002 /* DirectColorTheme.m in Sources */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000002 /* DirectColorTheme.m */; };
+		DC0000010000000000000003 /* DirectColorThemeStore.m in Sources */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000003 /* DirectColorThemeStore.m */; };
+		DC0000010000000000000004 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC0000110000000000000005 /* XCTest.framework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		18E2553F2FDBF5B8002C58F0 /* SovietExtension.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = SovietExtension.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC0000110000000000000001 /* DirectColorThemeStoreTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DirectColorThemeStoreTests.m; sourceTree = "<group>"; };
+		DC0000110000000000000002 /* DirectColorTheme.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DirectColorTheme.m; sourceTree = "<group>"; };
+		DC0000110000000000000003 /* DirectColorThemeStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DirectColorThemeStore.m; sourceTree = "<group>"; };
+		DC0000110000000000000004 /* SovietExtensionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SovietExtensionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC0000110000000000000005 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +38,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DC0000210000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ( DC0000010000000000000004 /* XCTest.framework in Frameworks */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,14 +51,30 @@
 			isa = PBXGroup;
 			children = (
 				18E255412FDBF5B8002C58F0 /* SovietExtension */,
+				DC0000310000000000000001 /* SovietExtensionTests */,
+				DC0000310000000000000002 /* Test Model Sources */,
 				18E255402FDBF5B8002C58F0 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		DC0000310000000000000001 /* SovietExtensionTests */ = {
+			isa = PBXGroup;
+			children = ( DC0000110000000000000001 /* DirectColorThemeStoreTests.m */, );
+			path = SovietExtensionTests;
+			sourceTree = "<group>";
+		};
+		DC0000310000000000000002 /* Test Model Sources */ = {
+			isa = PBXGroup;
+			children = ( DC0000110000000000000002 /* DirectColorTheme.m */, DC0000110000000000000003 /* DirectColorThemeStore.m */, );
+			name = "Test Model Sources";
+			path = SovietExtension;
 			sourceTree = "<group>";
 		};
 		18E255402FDBF5B8002C58F0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				18E2553F2FDBF5B8002C58F0 /* SovietExtension.framework */,
+				DC0000110000000000000004 /* SovietExtensionTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -82,6 +116,17 @@
 			productReference = 18E2553F2FDBF5B8002C58F0 /* SovietExtension.framework */;
 			productType = "com.apple.product-type.framework";
 		};
+		DC0000410000000000000001 /* SovietExtensionTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DC0000710000000000000001 /* Build configuration list for PBXNativeTarget "SovietExtensionTests" */;
+			buildPhases = ( DC0000610000000000000001 /* Sources */, DC0000210000000000000001 /* Frameworks */, );
+			buildRules = ( );
+			dependencies = ( );
+			name = SovietExtensionTests;
+			productName = SovietExtensionTests;
+			productReference = DC0000110000000000000004 /* SovietExtensionTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -91,6 +136,7 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					DC0000410000000000000001 = { CreatedOnToolsVersion = 26.4.1; };
 					18E2553E2FDBF5B8002C58F0 = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
@@ -111,6 +157,7 @@
 			projectRoot = "";
 			targets = (
 				18E2553E2FDBF5B8002C58F0 /* SovietExtension */,
+				DC0000410000000000000001 /* SovietExtensionTests */,
 			);
 		};
 /* End PBXProject section */
@@ -151,6 +198,12 @@
 			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC0000610000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ( DC0000010000000000000001, DC0000010000000000000002, DC0000010000000000000003, );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
@@ -345,6 +398,8 @@
 			};
 			name = Release;
 		};
+		DC0000810000000000000001 /* Debug */ = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; HEADER_SEARCH_PATHS = "$(SRCROOT)/SovietExtension"; MACOSX_DEPLOYMENT_TARGET = 13.0; PRODUCT_BUNDLE_IDENTIFIER = com.mustangym.SovietExtensionTests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; }; name = Debug; };
+		DC0000810000000000000002 /* Release */ = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; HEADER_SEARCH_PATHS = "$(SRCROOT)/SovietExtension"; MACOSX_DEPLOYMENT_TARGET = 13.0; PRODUCT_BUNDLE_IDENTIFIER = com.mustangym.SovietExtensionTests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -363,6 +418,12 @@
 				18E255482FDBF5B8002C58F0 /* Debug */,
 				18E255492FDBF5B8002C58F0 /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DC0000710000000000000001 /* Build configuration list for PBXNativeTarget "SovietExtensionTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = ( DC0000810000000000000001, DC0000810000000000000002, );
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
