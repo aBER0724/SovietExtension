@@ -55,6 +55,17 @@
 
 ## Global Theme / 全局主题
 
+<table>
+  <tr>
+    <td align="center"><strong>Catppuccin</strong></td>
+    <td align="center"><strong>Gruvbox</strong></td>
+  </tr>
+  <tr>
+    <td><img src="./global-theme-catppuccin.png" alt="Catppuccin 深色全局主题效果" width="440" /></td>
+    <td><img src="./global-theme-gruvbox.png" alt="Gruvbox 深色全局主题效果" width="440" /></td>
+  </tr>
+</table>
+
 支持对微信 4.x Qt/mmui 原生界面应用全局配色，入口：
 
 ```text
