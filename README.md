@@ -72,18 +72,57 @@
 苏维埃助手 → 主题模式 → 全局主题设置
 ```
 
-当前内置：
+### 内置主题
+
+内置主题为只读配置，可跟随 macOS 浅色 / 深色外观切换：
 
 - Catppuccin（Latte / Mocha）
 - Catppuccin Frappé
 - Catppuccin Macchiato
 - Gruvbox
 - Tokyo Night
-- 跟随 macOS 浅色 / 深色外观
-- 主背景、Ribbon、收发气泡、文字、链接和强调色自定义
-- 高级命名主题键覆盖
 
-点击“应用并重启”后，工具会从原始备份重新生成主题、签名并重启微信，避免多次应用造成颜色累积漂移。聊天图片、头像、网页和小程序不会被全局配色替换。
+### 命名自定义主题
+
+可以新建、另存为、复制、重命名和删除多份自定义主题。每份主题都有相互独立的浅色与深色配置，每种外观直接填写以下十个 `#RRGGBB` 色值：
+
+| 色号 | 用途 |
+| --- | --- |
+| `base` | 主背景 |
+| `sidebar` | 会话列表侧栏 |
+| `ribbon` | 左侧 Ribbon |
+| `outgoing_bubble` | 发出消息气泡 |
+| `incoming_bubble` | 收到消息气泡 |
+| `text` | 主文字 |
+| `subtext` | 次要文字 |
+| `accent` | 强调色与品牌控件 |
+| `link` | 链接 |
+| `danger` | 错误、警告与危险操作 |
+
+色号输入框与系统颜色选择器同步，保存时统一规范化为大写 `#RRGGBB`。这些颜色会直接映射到微信主题键，不会生成调色板、混合颜色、旋转色相或从内置主题继承未填写的颜色。
+
+高级用户还可以在“专家设置：微信原始主题键覆盖”中填写命名键覆盖。键名区分大小写，并会在应用前根据当前微信的真实主题表进行结构验证；不存在或不匹配的键会直接拒绝。
+
+自定义主题保存在：
+
+```text
+~/Library/Application Support/SovietExtension/themes/
+```
+
+每份配置使用独立 UUID 文件。安装器只会安装或更新主题辅助程序，不会覆盖、删除或批量改写已有的用户主题文件。当前应用配置是自包含快照，因此删除源主题后，微信仍会保持最后一次成功应用的效果，直到应用其他主题。
+
+### 安全应用
+
+点击“应用并重启”时会按以下顺序执行：
+
+1. 使用临时配置对真实的 pristine `wechat.dylib` 备份进行只读预检。
+2. 验证配置结构、十项色号、专家键、Mach-O 记录和预期补丁数量。
+3. 预检通过后才请求确认并退出微信。
+4. 始终从原始备份在内存中重新生成完整结果，不在上一次主题上累计修改。
+5. 完整验证后通过同目录临时文件原子替换 live dylib。
+6. 先签名修改后的 `wechat.dylib`，再签名 `WeChat.app`，最后重新启动微信。
+
+任一步失败都会在修改 live dylib 前停止，或保留原文件不变并清理临时文件。聊天图片、头像、网页、小程序和登录窗口不会被全局配色替换。
 
 左侧 Ribbon 使用 `mmui::MainTabBar` 暴露的原生窗口 backing surface 着色，不使用半透明覆盖层，因此不会混合图标、遮挡会话列表或改变普通 QNSView 的不透明渲染。Catppuccin 深色模式默认使用：
 
@@ -187,6 +226,25 @@ Run WeChat and watch log / 启动微信并查看日志：
 Uninstall / 卸载：
   /Users/mustangym/SovietExtension/SovietExtension/Rely/uninstall.sh
 ```
+
+### 3. 开发构建不会自动安装
+
+Xcode 的常规构建默认只生成产物，不会修改 `/Applications/WeChat.app`。只有明确设置以下环境变量时，构建阶段才会调用安装流程：
+
+```bash
+SOVIET_INSTALL_AFTER_BUILD=1
+```
+
+只有精确值 `1` 会启用安装；未设置、`0`、`true`、`01` 等值均为安全的 no-op。日常开发与测试请保持该变量未设置。
+
+如果希望安装器使用稳定的开发证书签名，可以指定：
+
+```bash
+SOVIET_CODE_SIGN_IDENTITY="Apple Development: name@example.com (TEAMID)" \
+bash install.sh
+```
+
+不建议依赖 ad-hoc 签名，因为签名身份变化可能导致 macOS 重新请求隐私权限。
 
 ---
 
