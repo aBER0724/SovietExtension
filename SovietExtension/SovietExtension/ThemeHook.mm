@@ -17,6 +17,7 @@
 #import "MistyModeSettingsWindowController.h"
 #import "MenuManager.h"
 #import "YMColorfulBlurBackgroundView.h"
+#import "ThemeRibbonResolver.h"
 
 #pragma mark - 默认值
 static const BOOL kYMDefaultMistyModeEnabled = NO;
@@ -531,6 +532,7 @@ static void YMApplyWindowBackgroundBlur(NSWindow *window) {
 
 static NSString * const kYMGlobalThemeLightColorsKey = @"kGlobalThemeLightColors.SOVIET";
 static NSString * const kYMGlobalThemeDarkColorsKey = @"kGlobalThemeDarkColors.SOVIET";
+static NSString * const kYMThemeConfigurationRelativePath = @"Library/Application Support/SovietExtension/theme.json";
 static NSString * const kYMRibbonTintViewIdentifier = @"com.sovietextension.ribbon-tint";
 static char kYMRibbonTintViewAssociatedKey;
 
@@ -559,14 +561,30 @@ static NSColor *YMThemeColorFromHex(NSString *hex) {
 static const void *kYMOriginalWindowBackgroundColorKey = &kYMOriginalWindowBackgroundColorKey;
 static const void *kYMOriginalWindowOpaqueKey = &kYMOriginalWindowOpaqueKey;
 
+static NSDictionary *YMCachedThemeConfiguration(void) {
+    static NSDictionary *cachedConfiguration = nil;
+    static unsigned long long cachedSize = ULLONG_MAX;
+    static NSTimeInterval cachedModificationTime = -1;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:kYMThemeConfigurationRelativePath];
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+    unsigned long long size = attributes ? [attributes fileSize] : ULLONG_MAX;
+    NSTimeInterval modificationTime = attributes ? [attributes fileModificationDate].timeIntervalSince1970 : -1;
+    if (size == cachedSize && modificationTime == cachedModificationTime) return cachedConfiguration;
+
+    cachedSize = size;
+    cachedModificationTime = modificationTime;
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    id object = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    cachedConfiguration = [object isKindOfClass:NSDictionary.class] ? object : nil;
+    return cachedConfiguration;
+}
+
 static NSColor *YMRibbonThemeColor(void) {
-    NSString *key = YMCarrierStyleIsDark() ? kYMGlobalThemeDarkColorsKey : kYMGlobalThemeLightColorsKey;
-    NSDictionary *colors = [[NSUserDefaults standardUserDefaults] dictionaryForKey:key];
-    NSColor *color = YMThemeColorFromHex(colors[@"ribbon"]);
-    if (color) return color;
-    return YMCarrierStyleIsDark()
-        ? [NSColor colorWithSRGBRed:0x11 / 255.0 green:0x11 / 255.0 blue:0x1B / 255.0 alpha:1.0]
-        : [NSColor colorWithSRGBRed:0xDC / 255.0 green:0xE0 / 255.0 blue:0xE8 / 255.0 alpha:1.0];
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSDictionary *light = [defaults dictionaryForKey:kYMGlobalThemeLightColorsKey];
+    NSDictionary *dark = [defaults dictionaryForKey:kYMGlobalThemeDarkColorsKey];
+    NSString *hex = YMRibbonHexFromConfiguration(YMCachedThemeConfiguration(), YMCarrierStyleIsDark(), light, dark);
+    return YMThemeColorFromHex(hex);
 }
 
 static BOOL YMIsMainRibbonWindow(NSWindow *window) {

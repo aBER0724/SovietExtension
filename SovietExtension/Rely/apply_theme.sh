@@ -33,6 +33,11 @@ printf '\n[%s] Applying global theme\n' "$(date '+%F %T')"
 [ -f "${DYLIB}" ] || { echo "missing WeChat theme image: ${DYLIB}"; exit 1; }
 [ -f "${BACKUP}" ] || { echo "missing pristine backup: ${BACKUP}"; exit 1; }
 
+# This must remain before every quit/kill operation. It loads the pristine
+# backup, validates exact advanced keys and generates/counts the full patch in
+# memory without changing the config, backup, live dylib, or app.
+/usr/bin/python3 "${PATCHER}" "${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}" --preflight
+
 /usr/bin/osascript -e 'tell application "WeChat" to quit' >/dev/null 2>&1 || true
 for _ in {1..30}; do
     /usr/bin/pgrep -x WeChat >/dev/null 2>&1 || break

@@ -523,6 +523,19 @@ def patch_bytes(source: bytes, theme: dict[str, Any], *,
     return bytes(data), patched, len(keys)
 
 
+def preflight(path: Path, backup: Path | None, theme: dict[str, Any],
+              *, resolved_color_keys: set[str] | None = None) -> int:
+    """Validate and fully generate a patch in memory without writing anything."""
+    source_path = backup if backup and backup.exists() else path
+    source = source_path.read_bytes()
+    _, patched, key_count = patch_bytes(
+        source, theme, resolved_color_keys=resolved_color_keys)
+    resolved_note = " (including resolved colors)" if resolved_color_keys else ""
+    print(f"preflight preset={theme['name']}: patched={patched}, "
+          f"unique named colors={key_count}{resolved_note}; source={source_path}")
+    return patched
+
+
 def patch(path: Path, backup: Path | None, theme: dict[str, Any] | None = None,
           *, resolved_color_keys: set[str] | None = None) -> int:
     theme = theme or build_theme("catppuccin")
@@ -635,6 +648,8 @@ def main() -> int:
     parser.add_argument("--backup", type=Path,
                         help="clean backup; existing backups are restored before every application")
     parser.add_argument("--restore", action="store_true")
+    parser.add_argument("--preflight", action="store_true",
+                        help="validate and generate the complete patch in memory without writes")
     parser.add_argument("--preset", choices=sorted(PRESETS), default=None)
     parser.add_argument("--config", type=Path, help="JSON semantic/named-key overrides")
     parser.add_argument("--list-presets", action="store_true", help="print preset metadata as JSON")
@@ -665,8 +680,14 @@ def main() -> int:
     config = load_config(args.config)
     # An explicit CLI preset wins; otherwise a config preset can select it.
     preset = args.preset or config.get("preset") or "catppuccin"
-    patch(args.dylib, args.backup, build_theme(preset, config),
-          resolved_color_keys=set(args.patch_resolved_key))
+    theme = build_theme(preset, config)
+    resolved_color_keys = set(args.patch_resolved_key)
+    if args.preflight:
+        preflight(args.dylib, args.backup, theme,
+                  resolved_color_keys=resolved_color_keys)
+        return 0
+    patch(args.dylib, args.backup, theme,
+          resolved_color_keys=resolved_color_keys)
     return 0
 
 

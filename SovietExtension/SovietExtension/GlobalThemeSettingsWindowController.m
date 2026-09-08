@@ -303,13 +303,36 @@ static NSString *YMHexFromColor(NSColor *color) {
         [self.editorState selectIdentifier:identifier]; [self ym_rebuildPopup]; [self ym_refreshControls];
     }
     NSString *runner=[[self ym_supportDirectory] stringByAppendingPathComponent:@"apply_theme.sh"]; if(![NSFileManager.defaultManager isExecutableFileAtPath:runner]){[self ym_showError:[NSString stringWithFormat:@"主题辅助程序不存在：%@\n请重新运行 Rely/install.sh。",runner]];return;}
-    NSAlert *a=[[NSAlert alloc] init]; a.messageText=@"应用全局主题？"; a.informativeText=@"微信将退出。主题表会从原始备份重新生成；有稳定配置的签名身份时将优先使用，然后自动启动微信。"; [a addButtonWithTitle:@"应用并重启"]; [a addButtonWithTitle:@"取消"]; if([a runModal]!=NSAlertFirstButtonReturn)return;
     if(!config) { NSString *key=[self.editorState.selectedIdentifier substringFromIndex:8]; config=@{@"preset":key,@"light":self.editorState.lightColors,@"dark":self.editorState.darkColors,@"advanced":self.editorState.advancedOverrides}; }
+    if(![self ym_preflightConfiguration:config error:&error]) { [self ym_showError:error.localizedDescription]; return; }
+    NSAlert *a=[[NSAlert alloc] init]; a.messageText=@"应用全局主题？"; a.informativeText=@"预检已通过。微信将退出。主题表会从原始备份重新生成；有稳定配置的签名身份时将优先使用，然后自动启动微信。"; [a addButtonWithTitle:@"应用并重启"]; [a addButtonWithTitle:@"取消"]; if([a runModal]!=NSAlertFirstButtonReturn)return;
     NSString *dir=[self ym_supportDirectory]; if(![NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&error]){[self ym_showError:error.localizedDescription];return;}
     NSData *json=[NSJSONSerialization dataWithJSONObject:config options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:&error]; NSString *path=[self ym_configPath]; if(!json||![json writeToFile:path options:NSDataWritingAtomic error:&error]){[self ym_showError:error.localizedDescription];return;}
     [NSUserDefaults.standardUserDefaults setBool:YES forKey:YMCappuccinoThemeEnabledKey]; [NSUserDefaults.standardUserDefaults setObject:self.editorState.selectedIdentifier forKey:YMGlobalThemeSelectionKey]; [NSUserDefaults.standardUserDefaults synchronize];
     NSTask *task=[[NSTask alloc] init]; task.launchPath=@"/bin/bash"; task.arguments=@[@"-c",[NSString stringWithFormat:@"nohup %@ %@ >/tmp/SovietExtension-theme-apply.log 2>&1 </dev/null &",[self ym_shellQuote:runner],[self ym_shellQuote:path]]];
     @try{[task launch];[task waitUntilExit];}@catch(NSException *e){[self ym_showError:e.reason];return;} self.statusLabel.stringValue=@"正在应用主题并重启微信…"; if(self.applyHandler)self.applyHandler(YES); self.allowingClose=YES; [self.window close]; self.allowingClose=NO;
+}
+
+- (BOOL)ym_preflightConfiguration:(NSDictionary *)config error:(NSError **)error {
+    NSString *dir=[self ym_supportDirectory]; NSFileManager *fm=NSFileManager.defaultManager;
+    if(![fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:error]) return NO;
+    NSString *temporaryConfigPath=[dir stringByAppendingPathComponent:[NSString stringWithFormat:@".theme-preflight-%@.json",NSUUID.UUID.UUIDString]];
+    NSData *json=[NSJSONSerialization dataWithJSONObject:config options:NSJSONWritingSortedKeys error:error];
+    if(!json||![json writeToFile:temporaryConfigPath options:NSDataWritingAtomic error:error]) return NO;
+    NSString *patcher=[dir stringByAppendingPathComponent:@"apply_theme.py"];
+    NSString *live=@"/Applications/WeChat.app/Contents/Resources/wechat.dylib";
+    NSString *backup=@"/Applications/WeChat.app/Contents/Resources/wechat.dylib.soviet-original";
+    NSTask *task=[[NSTask alloc] init]; NSPipe *pipe=[NSPipe pipe]; task.launchPath=@"/usr/bin/python3";
+    task.arguments=@[patcher,live,@"--backup",backup,@"--config",temporaryConfigPath,@"--preflight"];
+    task.standardOutput=pipe; task.standardError=pipe; self.statusLabel.stringValue=@"正在预检真实微信主题表…";
+    @try { [task launch]; } @catch(NSException *exception) {
+        [fm removeItemAtPath:temporaryConfigPath error:nil];
+        if(error)*error=[NSError errorWithDomain:@"SovietExtension.ThemePreflight" code:1 userInfo:@{NSLocalizedDescriptionKey:exception.reason?:@"无法启动主题预检"}]; return NO;
+    }
+    NSData *output=[pipe.fileHandleForReading readDataToEndOfFile]; [task waitUntilExit]; [fm removeItemAtPath:temporaryConfigPath error:nil];
+    if(task.terminationStatus==0) { self.statusLabel.stringValue=@"预检通过，等待确认。"; return YES; }
+    NSString *message=[[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
+    if(error)*error=[NSError errorWithDomain:@"SovietExtension.ThemePreflight" code:task.terminationStatus userInfo:@{NSLocalizedDescriptionKey:message.length?message:@"主题预检失败"}]; return NO;
 }
 
 - (NSString *)ym_shellQuote:(NSString *)value { return [NSString stringWithFormat:@"'%@'",[value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"]]; }

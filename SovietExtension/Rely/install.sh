@@ -151,6 +151,7 @@ THEME_DYLIB="${APP_PATH}/Contents/Resources/wechat.dylib"
 THEME_BACKUP="${APP_PATH}/Contents/Resources/wechat.dylib.soviet-original"
 THEME_RUNNER="${SCRIPT_DIR}/apply_theme.sh"
 THEME_SUPPORT_DIR="${HOME}/Library/Application Support/SovietExtension"
+THEME_DOCUMENTS_DIR="${THEME_SUPPORT_DIR}/themes"
 # ------------------------------
 # utilities
 # ------------------------------
@@ -692,7 +693,14 @@ sign_app() {
 install_theme_helpers() {
     [ -f "${THEME_SCRIPT}" ] || die "Theme patcher missing / 主题补丁脚本不存在: ${THEME_SCRIPT}"
     [ -f "${THEME_RUNNER}" ] || die "Theme runner missing / 主题辅助程序不存在: ${THEME_RUNNER}"
-    mkdir -p "${THEME_SUPPORT_DIR}"
+    # Create only missing directories. Never enumerate, rewrite, remove, or
+    # chmod user theme documents under themes/*.json.
+    if [ ! -d "${THEME_SUPPORT_DIR}" ]; then
+        mkdir -m 700 -p "${THEME_SUPPORT_DIR}"
+    fi
+    if [ ! -d "${THEME_DOCUMENTS_DIR}" ]; then
+        mkdir -m 700 "${THEME_DOCUMENTS_DIR}"
+    fi
     cp "${THEME_SCRIPT}" "${THEME_SUPPORT_DIR}/apply_theme.py"
     cp "${THEME_RUNNER}" "${THEME_SUPPORT_DIR}/apply_theme.sh"
     chmod 755 "${THEME_SUPPORT_DIR}/apply_theme.py" "${THEME_SUPPORT_DIR}/apply_theme.sh"
