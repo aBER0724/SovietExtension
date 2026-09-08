@@ -189,6 +189,66 @@
     XCTAssertEqualObjects(state.selectedIdentifier, [@"custom:" stringByAppendingString:source.identifier]);
 }
 
+- (void)testCustomApplyReloadCachedThemesWithErrorFailsWithoutSnapshot {
+    DirectColorTheme *source = [self themeNamed:@"Ocean" identifier:@"11111111-1111-1111-1111-111111111111"];
+    DirectColorThemeEditorState *state = [[DirectColorThemeEditorState alloc] initWithBuiltInPresets:DirectColorThemeEditorState.builtInPresets customThemes:@[source]];
+    [state selectIdentifier:[@"custom:" stringByAppendingString:source.identifier]];
+    __block NSUInteger saves = 0, reloads = 0;
+    NSError *error = nil;
+    DirectColorThemeApplyResult *result = [DirectColorThemeApplyCoordinator prepareCustomApplicationForState:state sourceTheme:source saveHandler:^BOOL(DirectColorTheme *theme, NSError **saveError) {
+        (void)theme; (void)saveError; saves++; return YES;
+    } reloadHandler:^NSArray<DirectColorTheme *> *(NSError **reloadError) {
+        reloads++;
+        if (reloadError) *reloadError = [NSError errorWithDomain:@"production-cache" code:19 userInfo:@{NSLocalizedDescriptionKey:@"Could not list theme documents."}];
+        return @[source]; // DirectColorThemeStore production contract: cached themes plus NSError.
+    } error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(saves, 1u);
+    XCTAssertEqual(reloads, 1u);
+    XCTAssertEqual(error.code, 19);
+}
+
+- (void)assertCreationOperation:(DirectColorThemeOperation)operation
+                 unsavedAction:(DirectColorThemeUnsavedAction)action
+                      decision:(DirectColorThemeUnsavedDecision)decision
+                 saveSucceeds:(BOOL)saveSucceeds
+                expectedSaveAs:(NSUInteger)expectedSaveAs
+                  expectedSave:(NSUInteger)expectedSave
+               expectedCurrent:(NSUInteger)expectedCurrent
+                expectedTarget:(NSUInteger)expectedTarget {
+    __block NSUInteger saveAsCount = 0, saveCount = 0, currentCount = 0, targetCount = 0;
+    DirectColorThemeOperationResult *result = [DirectColorThemeOperationCoordinator performOperation:operation
+        unsavedAction:action decision:decision
+        saveHandler:^BOOL{ saveCount++; return saveSucceeds; }
+        saveAsHandler:^BOOL{ saveAsCount++; return saveSucceeds; }
+        currentHandler:^{ currentCount++; }
+        targetHandler:^{ targetCount++; }];
+    XCTAssertEqual(saveAsCount, expectedSaveAs);
+    XCTAssertEqual(saveCount, expectedSave);
+    XCTAssertEqual(currentCount, expectedCurrent);
+    XCTAssertEqual(targetCount, expectedTarget);
+    XCTAssertEqual(result.targetActionCount, expectedTarget);
+    XCTAssertEqual(result.currentActionCount, expectedCurrent);
+}
+
+- (void)testNewAndDuplicateCreationOrchestrationExecutesTargetAtMostOnce {
+    for (NSNumber *operation in @[@(DirectColorThemeOperationNew), @(DirectColorThemeOperationDuplicate)]) {
+        DirectColorThemeOperation op = operation.integerValue;
+        // Built-in Save As creates the requested New/Duplicate from visible values; no second creation.
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSaveAs decision:DirectColorThemeUnsavedDecisionSave saveSucceeds:YES expectedSaveAs:1 expectedSave:0 expectedCurrent:0 expectedTarget:0];
+        // Custom Save resolves only the current edit, then performs the requested creation once.
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSave decision:DirectColorThemeUnsavedDecisionSave saveSucceeds:YES expectedSaveAs:0 expectedSave:1 expectedCurrent:0 expectedTarget:1];
+        // Discard resolves only current editing, then performs the requested creation once.
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSaveAs decision:DirectColorThemeUnsavedDecisionDiscard saveSucceeds:NO expectedSaveAs:0 expectedSave:0 expectedCurrent:1 expectedTarget:1];
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSave decision:DirectColorThemeUnsavedDecisionDiscard saveSucceeds:NO expectedSaveAs:0 expectedSave:0 expectedCurrent:1 expectedTarget:1];
+        // Cancel and either save failure stop before the target action.
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSaveAs decision:DirectColorThemeUnsavedDecisionCancel saveSucceeds:YES expectedSaveAs:0 expectedSave:0 expectedCurrent:0 expectedTarget:0];
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSave decision:DirectColorThemeUnsavedDecisionCancel saveSucceeds:YES expectedSaveAs:0 expectedSave:0 expectedCurrent:0 expectedTarget:0];
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSaveAs decision:DirectColorThemeUnsavedDecisionSave saveSucceeds:NO expectedSaveAs:1 expectedSave:0 expectedCurrent:0 expectedTarget:0];
+        [self assertCreationOperation:op unsavedAction:DirectColorThemeUnsavedActionSave decision:DirectColorThemeUnsavedDecisionSave saveSucceeds:NO expectedSaveAs:0 expectedSave:1 expectedCurrent:0 expectedTarget:0];
+    }
+}
+
 - (void)testInvalidActiveAdvancedDoesNotEnterInvalidSnapshotState {
     DirectColorTheme *source = [self themeNamed:@"Ocean" identifier:@"11111111-1111-1111-1111-111111111111"];
     NSDictionary *active = @{@"schema_version":@2, @"preset":NSNull.null, @"custom_theme_id":source.identifier,

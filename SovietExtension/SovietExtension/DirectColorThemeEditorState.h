@@ -67,6 +67,27 @@ mayProceedWithAction:(DirectColorThemeUnsavedAction)action
 
 @end
 
+typedef BOOL (^DirectColorThemeOperationSaveHandler)(void);
+typedef void (^DirectColorThemeOperationActionHandler)(void);
+
+@interface DirectColorThemeOperationResult : NSObject
+@property (nonatomic, readonly) BOOL proceeded;
+@property (nonatomic, readonly) NSUInteger saveAsCount;
+@property (nonatomic, readonly) NSUInteger saveCount;
+@property (nonatomic, readonly) NSUInteger currentActionCount;
+@property (nonatomic, readonly) NSUInteger targetActionCount;
+@end
+
+@interface DirectColorThemeOperationCoordinator : NSObject
++ (DirectColorThemeOperationResult *)performOperation:(DirectColorThemeOperation)operation
+                                        unsavedAction:(DirectColorThemeUnsavedAction)unsavedAction
+                                             decision:(DirectColorThemeUnsavedDecision)decision
+                                          saveHandler:(nullable DirectColorThemeOperationSaveHandler)saveHandler
+                                        saveAsHandler:(nullable DirectColorThemeOperationSaveHandler)saveAsHandler
+                                       currentHandler:(nullable DirectColorThemeOperationActionHandler)currentHandler
+                                        targetHandler:(nullable DirectColorThemeOperationActionHandler)targetHandler;
+@end
+
 @interface DirectColorThemeApplyResult : NSObject
 @property (nonatomic, strong, readonly) DirectColorTheme *authoritativeTheme;
 @property (nonatomic, copy, readonly) NSDictionary *applicationSnapshot;

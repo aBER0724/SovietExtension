@@ -217,6 +217,45 @@ static NSDictionary *DeepCopyPropertyList(NSDictionary *value) {
 
 @end
 
+@interface DirectColorThemeOperationResult ()
+@property (nonatomic, readwrite) BOOL proceeded;
+@property (nonatomic, readwrite) NSUInteger saveAsCount;
+@property (nonatomic, readwrite) NSUInteger saveCount;
+@property (nonatomic, readwrite) NSUInteger currentActionCount;
+@property (nonatomic, readwrite) NSUInteger targetActionCount;
+@end
+@implementation DirectColorThemeOperationResult
+@end
+
+@implementation DirectColorThemeOperationCoordinator
+
++ (DirectColorThemeOperationResult *)performOperation:(DirectColorThemeOperation)operation unsavedAction:(DirectColorThemeUnsavedAction)unsavedAction decision:(DirectColorThemeUnsavedDecision)decision saveHandler:(DirectColorThemeOperationSaveHandler)saveHandler saveAsHandler:(DirectColorThemeOperationSaveHandler)saveAsHandler currentHandler:(DirectColorThemeOperationActionHandler)currentHandler targetHandler:(DirectColorThemeOperationActionHandler)targetHandler {
+    DirectColorThemeOperationResult *result = [[DirectColorThemeOperationResult alloc] init];
+    BOOL creationOperation = operation == DirectColorThemeOperationNew || operation == DirectColorThemeOperationDuplicate;
+    if (unsavedAction == DirectColorThemeUnsavedActionNone) {
+        result.proceeded = YES;
+    } else if (decision == DirectColorThemeUnsavedDecisionCancel) {
+        return result;
+    } else if (decision == DirectColorThemeUnsavedDecisionDiscard) {
+        if (currentHandler) { currentHandler(); result.currentActionCount = 1; }
+        result.proceeded = YES;
+    } else if (unsavedAction == DirectColorThemeUnsavedActionSaveAs) {
+        result.saveAsCount = 1;
+        if (!saveAsHandler || !saveAsHandler()) return result;
+        result.proceeded = YES;
+        // For New/Duplicate, Save As already created the requested copy from visible values.
+        if (creationOperation) return result;
+    } else {
+        result.saveCount = 1;
+        if (!saveHandler || !saveHandler()) return result;
+        result.proceeded = YES;
+    }
+    if (result.proceeded && targetHandler) { targetHandler(); result.targetActionCount = 1; }
+    return result;
+}
+
+@end
+
 @interface DirectColorThemeApplyResult ()
 @property (nonatomic, strong, readwrite) DirectColorTheme *authoritativeTheme;
 @property (nonatomic, copy, readwrite) NSDictionary *applicationSnapshot;
@@ -240,7 +279,12 @@ static NSDictionary *DeepCopyPropertyList(NSDictionary *value) {
     document[@"updated_at"] = [formatter stringFromDate:[NSDate date]];
     DirectColorTheme *visibleModel = [DirectColorTheme themeFromDictionary:document error:error];
     if (!visibleModel || !saveHandler(visibleModel, error)) return nil;
-    NSArray<DirectColorTheme *> *themes = reloadHandler(error);
+    NSError *reloadError = nil;
+    NSArray<DirectColorTheme *> *themes = reloadHandler(&reloadError);
+    if (reloadError) {
+        if (error) *error = reloadError;
+        return nil;
+    }
     if (!themes) return nil;
     DirectColorTheme *authoritative = nil;
     for (DirectColorTheme *theme in themes) if ([theme.identifier isEqualToString:visibleModel.identifier]) { authoritative = theme; break; }

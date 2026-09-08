@@ -218,6 +218,22 @@ static NSString *YMHexFromColor(NSColor *color) {
     return proceed;
 }
 
+- (void)ym_performCreationOperation:(DirectColorThemeOperation)operation {
+    NSError *error=nil; [self ym_syncFieldsWithError:&error];
+    DirectColorThemeUnsavedAction action=self.editorState.unsavedAction;
+    if (action==DirectColorThemeUnsavedActionNone && error) action=self.editorState.isBuiltIn?DirectColorThemeUnsavedActionSaveAs:DirectColorThemeUnsavedActionSave;
+    DirectColorThemeUnsavedDecision decision=action==DirectColorThemeUnsavedActionNone?DirectColorThemeUnsavedDecisionDiscard:[self ym_unsavedDecision];
+    [DirectColorThemeOperationCoordinator performOperation:operation unsavedAction:action decision:decision saveHandler:^BOOL{
+        return [self ym_saveCurrentCustom];
+    } saveAsHandler:^BOOL{
+        return [self ym_saveAsPrompted];
+    } currentHandler:^{
+        [self.editorState selectIdentifier:self.editorState.selectedIdentifier]; [self ym_refreshControls];
+    } targetHandler:^{
+        [self ym_saveAsPrompted];
+    }];
+}
+
 - (void)themeChanged:(id)sender {
     (void)sender; NSString *identifier=self.themePopup.selectedItem.representedObject;
     if ([identifier isEqual:YMNewThemeCommand]) { [self ym_selectPopupIdentifier:self.editorState.selectedIdentifier]; [self newTheme:nil]; return; }
@@ -249,8 +265,8 @@ static NSString *YMHexFromColor(NSColor *color) {
     [self.store loadThemes:nil]; NSString *identifier=[@"custom:" stringByAppendingString:theme.identifier]; self.editorState=[[DirectColorThemeEditorState alloc] initWithBuiltInPresets:DirectColorThemeEditorState.builtInPresets customThemes:self.store.themes]; [self.editorState selectIdentifier:identifier]; [self ym_rebuildPopup]; [self ym_refreshControls]; self.statusLabel.stringValue=@"主题已保存"; return YES;
 }
 
-- (void)newTheme:(id)sender { (void)sender; if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationNew]) return; [self ym_saveAsPrompted]; }
-- (void)duplicateTheme:(id)sender { (void)sender; if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationDuplicate]) return; [self ym_saveAsPrompted]; }
+- (void)newTheme:(id)sender { (void)sender; [self ym_performCreationOperation:DirectColorThemeOperationNew]; }
+- (void)duplicateTheme:(id)sender { (void)sender; [self ym_performCreationOperation:DirectColorThemeOperationDuplicate]; }
 - (void)renameTheme:(id)sender { (void)sender; if (![self ym_resolveUnsavedForOperation:DirectColorThemeOperationRename]) return; DirectColorTheme *theme=self.editorState.selectedCustomTheme; if(!theme)return; NSString *name=[self ym_promptNameWithTitle:@"重命名自定义主题" defaultValue:theme.name]; if(!name)return; NSError *error=nil; DirectColorTheme *renamed=[self.store renameTheme:theme name:name error:&error]; if(!renamed){[self ym_showError:error.localizedDescription];return;} [self ym_reloadFromDisk]; [self.editorState selectIdentifier:[@"custom:" stringByAppendingString:renamed.identifier]]; [self ym_rebuildPopup]; [self ym_refreshControls]; }
 
 - (void)deleteTheme:(id)sender {
