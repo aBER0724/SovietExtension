@@ -533,18 +533,7 @@ static void YMApplyWindowBackgroundBlur(NSWindow *window) {
 static NSString * const kYMGlobalThemeLightColorsKey = @"kGlobalThemeLightColors.SOVIET";
 static NSString * const kYMGlobalThemeDarkColorsKey = @"kGlobalThemeDarkColors.SOVIET";
 static NSString * const kYMThemeConfigurationRelativePath = @"Library/Application Support/SovietExtension/theme.json";
-static NSString * const kYMRibbonTintViewIdentifier = @"com.sovietextension.ribbon-tint";
-static char kYMRibbonTintViewAssociatedKey;
-
-@interface YMRibbonTintView : NSView
-@end
-
-@implementation YMRibbonTintView
-- (NSView *)hitTest:(NSPoint)point {
-    (void)point;
-    return nil;
-}
-@end
+static char kYMLegacyRibbonTintViewAssociatedKey;
 
 static NSColor *YMThemeColorFromHex(NSString *hex) {
     if (![hex isKindOfClass:[NSString class]]) return nil;
@@ -562,21 +551,13 @@ static const void *kYMOriginalWindowBackgroundColorKey = &kYMOriginalWindowBackg
 static const void *kYMOriginalWindowOpaqueKey = &kYMOriginalWindowOpaqueKey;
 
 static NSDictionary *YMCachedThemeConfiguration(void) {
-    static NSDictionary *cachedConfiguration = nil;
-    static unsigned long long cachedSize = ULLONG_MAX;
-    static NSTimeInterval cachedModificationTime = -1;
+    static YMThemeConfigurationFileCache *cache = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        cache = [[YMThemeConfigurationFileCache alloc] init];
+    });
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:kYMThemeConfigurationRelativePath];
-    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
-    unsigned long long size = attributes ? [attributes fileSize] : ULLONG_MAX;
-    NSTimeInterval modificationTime = attributes ? [attributes fileModificationDate].timeIntervalSince1970 : -1;
-    if (size == cachedSize && modificationTime == cachedModificationTime) return cachedConfiguration;
-
-    cachedSize = size;
-    cachedModificationTime = modificationTime;
-    NSData *data = [NSData dataWithContentsOfFile:path];
-    id object = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    cachedConfiguration = [object isKindOfClass:NSDictionary.class] ? object : nil;
-    return cachedConfiguration;
+    return [cache configurationAtPath:path];
 }
 
 static NSColor *YMRibbonThemeColor(void) {
@@ -623,25 +604,21 @@ static void YMRestoreNativeRibbonBackingColor(NSWindow *window) {
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static void YMEnsureRibbonTintOverlay(NSView *container, NSView *qnsView) {
-    (void)container;
+static void YMCleanupLegacyRibbonTintOverlay(NSView *qnsView) {
     if (!qnsView) return;
-    YMRibbonTintView *overlay = objc_getAssociatedObject(qnsView, &kYMRibbonTintViewAssociatedKey);
+    NSView *overlay = objc_getAssociatedObject(qnsView, &kYMLegacyRibbonTintViewAssociatedKey);
     if (overlay) {
         [overlay removeFromSuperview];
-        objc_setAssociatedObject(qnsView, &kYMRibbonTintViewAssociatedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        YMLog(@"已移除 Ribbon 半透明覆盖层");
+        objc_setAssociatedObject(qnsView, &kYMLegacyRibbonTintViewAssociatedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        YMLog(@"已移除旧 Ribbon 半透明覆盖层");
     }
 }
 
-static void YMInstallRibbonTintInTree(NSView *view) {
+static void YMCleanupLegacyRibbonTintOverlaysInTree(NSView *view) {
     if (!view) return;
-    if (YMIsQNSView(view)) {
-        NSView *container = view.superview ?: view.window.contentView;
-        YMEnsureRibbonTintOverlay(container, view);
-    }
+    if (YMIsQNSView(view)) YMCleanupLegacyRibbonTintOverlay(view);
     for (NSView *subview in [view.subviews copy]) {
-        YMInstallRibbonTintInTree(subview);
+        YMCleanupLegacyRibbonTintOverlaysInTree(subview);
     }
 }
 
@@ -664,7 +641,7 @@ static void YMRefreshRibbonTintOverlays(void) {
         } else {
             YMApplyNativeRibbonBackingColor(window);
         }
-        YMInstallRibbonTintInTree(window.contentView);
+        YMCleanupLegacyRibbonTintOverlaysInTree(window.contentView);
     }
     if (loggedCandidate) gYMDidLogRibbonWindowCandidates = YES;
 }
@@ -772,7 +749,7 @@ static void YMInstallBlurBackgroundBehindQNSView(NSView *qnsView) {
         YMMakeWindowTransparent(window);
         YMMakeContainerBlurCarrier(container);
         YMEnsureColorfulBlurBackgroundInContainer(container, qnsView);
-        YMEnsureRibbonTintOverlay(container, qnsView);
+        YMCleanupLegacyRibbonTintOverlay(qnsView);
         YMMakeViewTransparent(qnsView);
     }
     @finally {
@@ -780,15 +757,12 @@ static void YMInstallBlurBackgroundBehindQNSView(NSView *qnsView) {
     }
 }
 
-static void YMInstallRibbonTintOverlayAsync(NSView *qnsView) {
+static void YMCleanupLegacyRibbonTintOverlayAsync(NSView *qnsView) {
     if (!qnsView) return;
     __weak NSView *weakView = qnsView;
     dispatch_async(dispatch_get_main_queue(), ^{
         NSView *strongView = weakView;
-        if (!strongView || !YMIsQNSView(strongView)) return;
-        NSView *container = strongView.superview ?: strongView.window.contentView;
-        if (!container) return;
-        YMEnsureRibbonTintOverlay(container, strongView);
+        if (strongView && YMIsQNSView(strongView)) YMCleanupLegacyRibbonTintOverlay(strongView);
     });
 }
 
@@ -889,7 +863,7 @@ static void YM_QNSView_viewDidMoveToWindow(id self, SEL _cmd) {
 
     if ([self isKindOfClass:[NSView class]]) {
         NSView *view = (NSView *)self;
-        YMInstallRibbonTintOverlayAsync(view);
+        YMCleanupLegacyRibbonTintOverlayAsync(view);
         if (YMMistyModeEnabled()) YMInstallBlurBackgroundBehindQNSViewAsync(view);
     }
 }
@@ -901,7 +875,7 @@ static void YM_QNSView_viewDidMoveToSuperview(id self, SEL _cmd) {
 
     if ([self isKindOfClass:[NSView class]]) {
         NSView *view = (NSView *)self;
-        YMInstallRibbonTintOverlayAsync(view);
+        YMCleanupLegacyRibbonTintOverlayAsync(view);
         if (YMMistyModeEnabled()) YMInstallBlurBackgroundBehindQNSViewAsync(view);
     }
 }
@@ -914,7 +888,7 @@ static void YM_QNSView_setLayer(id self, SEL _cmd, id layer) {
     if ([self isKindOfClass:[NSView class]]) {
         NSView *view = (NSView *)self;
         NSWindow *window = view.window;
-        YMInstallRibbonTintOverlayAsync(view);
+        YMCleanupLegacyRibbonTintOverlayAsync(view);
         if (!YMMistyModeEnabled()) {
             return;
         }

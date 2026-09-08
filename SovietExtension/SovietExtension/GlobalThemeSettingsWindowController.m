@@ -318,7 +318,7 @@ static NSString *YMHexFromColor(NSColor *color) {
     if(![fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:error]) return NO;
     NSString *temporaryConfigPath=[dir stringByAppendingPathComponent:[NSString stringWithFormat:@".theme-preflight-%@.json",NSUUID.UUID.UUIDString]];
     NSData *json=[NSJSONSerialization dataWithJSONObject:config options:NSJSONWritingSortedKeys error:error];
-    if(!json||![json writeToFile:temporaryConfigPath options:NSDataWritingAtomic error:error]) return NO;
+    if(!json||![json writeToFile:temporaryConfigPath options:NSDataWritingAtomic error:error]) { [fm removeItemAtPath:temporaryConfigPath error:nil]; return NO; }
     NSString *patcher=[dir stringByAppendingPathComponent:@"apply_theme.py"];
     NSString *live=@"/Applications/WeChat.app/Contents/Resources/wechat.dylib";
     NSString *backup=@"/Applications/WeChat.app/Contents/Resources/wechat.dylib.soviet-original";

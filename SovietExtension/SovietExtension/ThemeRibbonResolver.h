@@ -2,6 +2,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@interface YMThemeConfigurationFileCache : NSObject
+- (nullable NSDictionary *)configurationAtPath:(NSString *)path;
+@end
+
 /// Returns a strict #RRGGBB ribbon value. The active file configuration wins,
 /// then the matching UserDefaults dictionary, then the built-in static color.
 FOUNDATION_EXPORT NSString *YMRibbonHexFromConfiguration(
