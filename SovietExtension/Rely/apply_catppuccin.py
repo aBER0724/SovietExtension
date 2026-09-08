@@ -199,13 +199,6 @@ def load_config(path: Path | None) -> dict[str, Any]:
     return value
 
 
-def _valid_advanced_key(key: str) -> bool:
-    lower = key.lower()
-    if key in EXACT or semantic_role(key) is not None:
-        return True
-    return any(lower == prefix or lower.startswith(prefix + "_") for prefix in FAMILY)
-
-
 def _parse_advanced(config: dict[str, Any], theme: dict[str, Any]) -> None:
     advanced = config.get("advanced", {})
     if not isinstance(advanced, dict):
@@ -216,15 +209,12 @@ def _parse_advanced(config: dict[str, Any], theme: dict[str, Any]) -> None:
                 raise ValueError(f"advanced.{key} must be an object")
             for named_key, color in value.items():
                 named_key = str(named_key)
-                if not _valid_advanced_key(named_key):
-                    raise ValueError(f"unknown advanced named key: {named_key}")
                 try:
                     theme["advanced"][key][named_key] = parse_color(color)
                 except ValueError as exc:
                     raise ValueError(f"advanced.{key}.{named_key}: {exc}") from exc
         else:
-            if not _valid_advanced_key(str(key)):
-                raise ValueError(f"unknown advanced named key: {key}")
+            key = str(key)
             if isinstance(value, str):
                 color = parse_color(value)
                 theme["advanced"]["light"][key] = color
@@ -430,42 +420,59 @@ def parse_fat_slices(data: bytes | bytearray) -> list[tuple[int, int]]:
     return result
 
 
-def patch_bytes(source: bytes, theme: dict[str, Any], *,
-                resolved_color_keys: set[str] | None = None) -> tuple[bytes, int, int]:
-    data = bytearray(source)
-    patched = 0
-    resolved_patched = 0
-    keys: set[str] = set()
-    slices = parse_fat_slices(data)
+def _type3_records(source: bytes, slices: list[tuple[int, int]]) -> list[tuple[int, str]]:
+    records: list[tuple[int, str]] = []
     for base, size in slices:
         end = base + size
         for off in range(base, max(base, end - 47), 8):
-            if off + 28 > end or data[off:off+8] != b"\0" * 8:
+            if off + 28 > end or source[off:off+8] != b"\0" * 8:
                 continue
-            ptr, tag, record_type = struct.unpack_from("<III", data, off + 8)
+            ptr, tag, record_type = struct.unpack_from("<III", source, off + 8)
             if tag != 0x00600000 or record_type != 3 or not (0 < ptr < size):
                 continue
             string_pos = base + ptr
-            zero = data.find(0, string_pos, min(string_pos + 128, end))
+            zero = source.find(b"\0", string_pos, min(string_pos + 128, end))
             if zero < 0:
                 continue
-            raw = bytes(data[string_pos:zero])
             try:
-                key = raw.decode("ascii")
+                key = source[string_pos:zero].decode("ascii")
             except UnicodeDecodeError:
                 continue
-            if not key or any(not (c.isalnum() or c in "_./:-") for c in key):
-                continue
-            color_pos = off + 20
-            old = bytes(data[color_pos:color_pos+8])
-            light_rgb = (old[3], old[2], old[1])
-            dark_rgb = (old[7], old[6], old[5])
-            replacement = (encoded(color_for_key(theme, key, light_rgb, "light"), old[0]) +
-                           encoded(color_for_key(theme, key, dark_rgb, "dark"), old[4]))
-            if old != replacement:
-                data[color_pos:color_pos+8] = replacement
-                patched += 1
-            keys.add(key)
+            if key and all(c.isalnum() or c in "_./:-" for c in key):
+                records.append((off, key))
+    return records
+
+
+def _validate_advanced_keys(theme: dict[str, Any], canonical_keys: set[str]) -> None:
+    advanced_keys = set(theme["advanced"]["light"]) | set(theme["advanced"]["dark"])
+    unknown = sorted(advanced_keys - canonical_keys)
+    if unknown:
+        raise ValueError(f"unknown advanced named key: {', '.join(unknown)}")
+
+
+def patch_bytes(source: bytes, theme: dict[str, Any], *,
+                resolved_color_keys: set[str] | None = None) -> tuple[bytes, int, int]:
+    slices = parse_fat_slices(source)
+    records = _type3_records(source, slices)
+    keys = {key for _, key in records}
+    # Advanced overrides are valid only when their exact, case-sensitive names
+    # occur as structurally validated type=3 canonical records in this input.
+    # Complete this preflight before creating or modifying the output buffer.
+    _validate_advanced_keys(theme, keys)
+
+    data = bytearray(source)
+    patched = 0
+    resolved_patched = 0
+    for off, key in records:
+        color_pos = off + 20
+        old = source[color_pos:color_pos+8]
+        light_rgb = (old[3], old[2], old[1])
+        dark_rgb = (old[7], old[6], old[5])
+        replacement = (encoded(color_for_key(theme, key, light_rgb, "light"), old[0]) +
+                       encoded(color_for_key(theme, key, dark_rgb, "dark"), old[4]))
+        if old != replacement:
+            data[color_pos:color_pos+8] = replacement
+            patched += 1
 
     # Some mmui consumers use single-color records resolved for a particular
     # appearance. Only synchronize records that strictly mirror a validated
@@ -557,9 +564,10 @@ def _synthetic_fixture(count: int = 400) -> bytes:
     record_area = count * 32
     strings = bytearray()
     pointers = []
-    for index in range(count):
+    names = ["bg0"] + [f"self_test_color_{index:03d}" for index in range(count - 1)]
+    for name in names:
         pointers.append(record_area + len(strings))
-        strings.extend(f"self_test_color_{index:03d}\0".encode("ascii"))
+        strings.extend(f"{name}\0".encode("ascii"))
     data = bytearray(record_area) + strings
     for index, pointer in enumerate(pointers):
         off = index * 32
