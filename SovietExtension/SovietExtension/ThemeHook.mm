@@ -70,6 +70,8 @@ static BOOL gYMStarted = NO;
 static BOOL gYMQNSViewHookInstalled = NO;
 static BOOL gYMBlurKeepAliveStarted = NO;
 
+static BOOL gYMRibbonKeepAliveStarted = NO;
+static BOOL gYMDidLogRibbonWindowCandidates = NO;
 /// 防止处理背景过程中触发 setLayer / view move 后递归。
 static BOOL gYMApplyingBlurBackground = NO;
 
@@ -527,6 +529,142 @@ static void YMApplyWindowBackgroundBlur(NSWindow *window) {
           err);
 }
 
+static NSString * const kYMGlobalThemeLightColorsKey = @"kGlobalThemeLightColors.SOVIET";
+static NSString * const kYMGlobalThemeDarkColorsKey = @"kGlobalThemeDarkColors.SOVIET";
+static NSString * const kYMRibbonTintViewIdentifier = @"com.sovietextension.ribbon-tint";
+static char kYMRibbonTintViewAssociatedKey;
+
+@interface YMRibbonTintView : NSView
+@end
+
+@implementation YMRibbonTintView
+- (NSView *)hitTest:(NSPoint)point {
+    (void)point;
+    return nil;
+}
+@end
+
+static NSColor *YMThemeColorFromHex(NSString *hex) {
+    if (![hex isKindOfClass:[NSString class]]) return nil;
+    NSString *value = [[hex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
+    if ([value hasPrefix:@"#"]) value = [value substringFromIndex:1];
+    if (value.length != 6) return nil;
+    unsigned int rgb = 0;
+    if (![[NSScanner scannerWithString:value] scanHexInt:&rgb]) return nil;
+    return [NSColor colorWithSRGBRed:((rgb >> 16) & 0xFF) / 255.0
+                               green:((rgb >> 8) & 0xFF) / 255.0
+                                blue:(rgb & 0xFF) / 255.0
+                               alpha:1.0];
+}
+static const void *kYMOriginalWindowBackgroundColorKey = &kYMOriginalWindowBackgroundColorKey;
+static const void *kYMOriginalWindowOpaqueKey = &kYMOriginalWindowOpaqueKey;
+
+static NSColor *YMRibbonThemeColor(void) {
+    NSString *key = YMCarrierStyleIsDark() ? kYMGlobalThemeDarkColorsKey : kYMGlobalThemeLightColorsKey;
+    NSDictionary *colors = [[NSUserDefaults standardUserDefaults] dictionaryForKey:key];
+    NSColor *color = YMThemeColorFromHex(colors[@"ribbon"]);
+    if (color) return color;
+    return YMCarrierStyleIsDark()
+        ? [NSColor colorWithSRGBRed:0x11 / 255.0 green:0x11 / 255.0 blue:0x1B / 255.0 alpha:1.0]
+        : [NSColor colorWithSRGBRed:0xDC / 255.0 green:0xE0 / 255.0 blue:0xE8 / 255.0 alpha:1.0];
+}
+
+static BOOL YMIsMainRibbonWindow(NSWindow *window) {
+    if (!window || window.frame.size.width < 240.0 || window.frame.size.height < 400.0) return NO;
+    NSString *inspection = YMWindowInspectionText(window);
+    return YMTextContainsAnyKeyword(inspection, @[@"FramelessMainWindowClassWindow"]);
+}
+
+static void YMApplyNativeRibbonBackingColor(NSWindow *window) {
+    if (!YMIsMainRibbonWindow(window)) return;
+
+    if (!objc_getAssociatedObject(window, kYMOriginalWindowBackgroundColorKey)) {
+        NSColor *originalColor = window.backgroundColor ?: NSColor.clearColor;
+        objc_setAssociatedObject(window, kYMOriginalWindowBackgroundColorKey, originalColor,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(window, kYMOriginalWindowOpaqueKey, @(window.opaque),
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    // mmui::MainTabBar leaves its native backing surface unpainted. Setting the
+    // owning QNSWindow background recolors only that exposed Ribbon surface; it
+    // does not add a view, tint foreground content, or change QNSView opacity.
+    window.backgroundColor = YMRibbonThemeColor();
+    window.opaque = YES;
+}
+
+static void YMRestoreNativeRibbonBackingColor(NSWindow *window) {
+    if (!window) return;
+    NSColor *originalColor = objc_getAssociatedObject(window, kYMOriginalWindowBackgroundColorKey);
+    NSNumber *originalOpaque = objc_getAssociatedObject(window, kYMOriginalWindowOpaqueKey);
+    if (originalColor) window.backgroundColor = originalColor;
+    if (originalOpaque) window.opaque = originalOpaque.boolValue;
+    objc_setAssociatedObject(window, kYMOriginalWindowBackgroundColorKey, nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(window, kYMOriginalWindowOpaqueKey, nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void YMEnsureRibbonTintOverlay(NSView *container, NSView *qnsView) {
+    (void)container;
+    if (!qnsView) return;
+    YMRibbonTintView *overlay = objc_getAssociatedObject(qnsView, &kYMRibbonTintViewAssociatedKey);
+    if (overlay) {
+        [overlay removeFromSuperview];
+        objc_setAssociatedObject(qnsView, &kYMRibbonTintViewAssociatedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        YMLog(@"已移除 Ribbon 半透明覆盖层");
+    }
+}
+
+static void YMInstallRibbonTintInTree(NSView *view) {
+    if (!view) return;
+    if (YMIsQNSView(view)) {
+        NSView *container = view.superview ?: view.window.contentView;
+        YMEnsureRibbonTintOverlay(container, view);
+    }
+    for (NSView *subview in [view.subviews copy]) {
+        YMInstallRibbonTintInTree(subview);
+    }
+}
+
+static void YMRefreshRibbonTintOverlays(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ YMRefreshRibbonTintOverlays(); });
+        return;
+    }
+    BOOL loggedCandidate = NO;
+    for (NSWindow *window in NSApp.windows) {
+        if (!gYMDidLogRibbonWindowCandidates && window.frame.size.width >= 500.0 && window.frame.size.height >= 400.0) {
+            loggedCandidate = YES;
+            YMLog(@"Ribbon candidate class=%@ main=%d key=%d frame=%@ description=%@ content=%@",
+                  NSStringFromClass(window.class), window.isMainWindow, window.isKeyWindow,
+                  NSStringFromRect(window.frame), window.description, window.contentView.description);
+        }
+        if (!YMIsMainRibbonWindow(window)) continue;
+        if (YMMistyModeEnabled()) {
+            YMRestoreNativeRibbonBackingColor(window);
+        } else {
+            YMApplyNativeRibbonBackingColor(window);
+        }
+        YMInstallRibbonTintInTree(window.contentView);
+    }
+    if (loggedCandidate) gYMDidLogRibbonWindowCandidates = YES;
+}
+
+static void YMRibbonKeepAliveTick(void) {
+    if (!gYMRibbonKeepAliveStarted) return;
+    YMRefreshRibbonTintOverlays();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kYMBlurKeepAliveInterval * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ YMRibbonKeepAliveTick(); });
+}
+
+static void YMStartRibbonKeepAliveIfNeeded(void) {
+    if (gYMRibbonKeepAliveStarted) return;
+    gYMRibbonKeepAliveStarted = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{ YMRibbonKeepAliveTick(); });
+}
+
+
 #pragma mark - Cocoa 层：窗口与 View 透明 / blur carrier
 
 static NSColor *YMWindowBlurCarrierColor(void) {
@@ -616,11 +754,24 @@ static void YMInstallBlurBackgroundBehindQNSView(NSView *qnsView) {
         YMMakeWindowTransparent(window);
         YMMakeContainerBlurCarrier(container);
         YMEnsureColorfulBlurBackgroundInContainer(container, qnsView);
+        YMEnsureRibbonTintOverlay(container, qnsView);
         YMMakeViewTransparent(qnsView);
     }
     @finally {
         gYMApplyingBlurBackground = NO;
     }
+}
+
+static void YMInstallRibbonTintOverlayAsync(NSView *qnsView) {
+    if (!qnsView) return;
+    __weak NSView *weakView = qnsView;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSView *strongView = weakView;
+        if (!strongView || !YMIsQNSView(strongView)) return;
+        NSView *container = strongView.superview ?: strongView.window.contentView;
+        if (!container) return;
+        YMEnsureRibbonTintOverlay(container, strongView);
+    });
 }
 
 static void YMInstallBlurBackgroundBehindQNSViewAsync(NSView *qnsView) {
@@ -701,16 +852,15 @@ static void YMStartBlurKeepAliveIfNeeded(void) {
 #pragma mark - Runtime Hook：QNSView
 
 static BOOL YM_QNSView_isOpaque(id self, SEL _cmd) {
+    if (!YMMistyModeEnabled()) {
+        return gOrig_QNSView_isOpaque ? gOrig_QNSView_isOpaque(self, _cmd) : YES;
+    }
     if ([self isKindOfClass:[NSView class]]) {
         NSWindow *window = ((NSView *)self).window;
         if (window && !YMShouldApplyMistyEffectForWindow(window)) {
-            if (gOrig_QNSView_isOpaque) {
-                return gOrig_QNSView_isOpaque(self, _cmd);
-            }
-            return YES;
+            return gOrig_QNSView_isOpaque ? gOrig_QNSView_isOpaque(self, _cmd) : YES;
         }
     }
-
     return NO;
 }
 
@@ -720,7 +870,9 @@ static void YM_QNSView_viewDidMoveToWindow(id self, SEL _cmd) {
     }
 
     if ([self isKindOfClass:[NSView class]]) {
-        YMInstallBlurBackgroundBehindQNSViewAsync((NSView *)self);
+        NSView *view = (NSView *)self;
+        YMInstallRibbonTintOverlayAsync(view);
+        if (YMMistyModeEnabled()) YMInstallBlurBackgroundBehindQNSViewAsync(view);
     }
 }
 
@@ -730,7 +882,9 @@ static void YM_QNSView_viewDidMoveToSuperview(id self, SEL _cmd) {
     }
 
     if ([self isKindOfClass:[NSView class]]) {
-        YMInstallBlurBackgroundBehindQNSViewAsync((NSView *)self);
+        NSView *view = (NSView *)self;
+        YMInstallRibbonTintOverlayAsync(view);
+        if (YMMistyModeEnabled()) YMInstallBlurBackgroundBehindQNSViewAsync(view);
     }
 }
 
@@ -742,6 +896,10 @@ static void YM_QNSView_setLayer(id self, SEL _cmd, id layer) {
     if ([self isKindOfClass:[NSView class]]) {
         NSView *view = (NSView *)self;
         NSWindow *window = view.window;
+        YMInstallRibbonTintOverlayAsync(view);
+        if (!YMMistyModeEnabled()) {
+            return;
+        }
 
         // window 还没绑定时不要提前改透明度。
         // 图片预览窗口的 QNSView 可能先 setLayer、后绑定到 PreviewWindow；
@@ -821,11 +979,7 @@ static void YMInstallQNSViewHooks(void) {
 + (void)start {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     BOOL mistyEnabled = [defaults boolForKey:kThemeMistyMode];
-    if (!mistyEnabled) {
-        return;
-    }
-    
-    
+
     if (gYMStarted) {
         return;
     }
@@ -834,23 +988,31 @@ static void YMInstallQNSViewHooks(void) {
 
     YMLog(@"start");
 
-    [MenuManager shareInstance].hasLoadMistyHook = YES;
+    if (mistyEnabled) {
+        [MenuManager shareInstance].hasLoadMistyHook = YES;
+    }
     
     dispatch_async(dispatch_get_main_queue(), ^{
         YMRegisterMistyThemeDefaults();
         YMInstallQNSViewHooks();
-        YMRefreshAllWindows();
-        YMStartBlurKeepAliveIfNeeded();
+        YMRefreshRibbonTintOverlays();
+        YMStartRibbonKeepAliveIfNeeded();
+        if (mistyEnabled) {
+            YMRefreshAllWindows();
+            YMStartBlurKeepAliveIfNeeded();
+        }
 
         // 微信 / Qt 有些窗口和 layer 会延后创建，所以延迟再刷几次。
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             YMInstallQNSViewHooks();
-            YMRefreshAllWindows();
+            YMRefreshRibbonTintOverlays();
+            if (mistyEnabled) YMRefreshAllWindows();
         });
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             YMInstallQNSViewHooks();
-            YMRefreshAllWindows();
+            YMRefreshRibbonTintOverlays();
+            if (mistyEnabled) YMRefreshAllWindows();
         });
     });
 }

@@ -10,6 +10,8 @@
 #import "NSMenu+Action.h"
 #import "YMSwizzledHelper.h"
 #import "MistyModeSettingsWindowController.h"
+#import "GlobalThemeSettingsWindowController.h"
+#import "CappuccinoPatch.h"
 
 #ifndef kExitChatroomNickname
 #define kExitChatroomNickname @"YMExitChatroomNickname"
@@ -17,7 +19,9 @@
 
 @interface MenuManager ()
 @property (nonatomic, strong) NSMenuItem *ym_mistyModeMenuItem;
+@property (nonatomic, strong) NSMenuItem *ym_globalThemeMenuItem;
 @property (nonatomic, strong) MistyModeSettingsWindowController *ym_mistySettingsWindowController;
+@property (nonatomic, strong) GlobalThemeSettingsWindowController *ym_globalThemeSettingsWindowController;
 @end
 
 @implementation MenuManager
@@ -39,7 +43,9 @@
 {
     [self ym_registerDefaultBool:NO forKey:kExitChatroomNick];
     [MistyModeSettingsWindowController registerDefaults];
+    [GlobalThemeSettingsWindowController registerDefaults];
 
+    YMRegisterCappuccinoThemeDefaults();
     NSMenuItem *antiUpdateMenu = [self ym_toggleMenuItemWithTitle:@"阻止更新"
                                                               key:kAntiUpdate
                                                            action:@selector(onAntiUpdate:)];
@@ -194,6 +200,22 @@
     [self ym_showMistyModeSettingsWindow:item];
 }
 
+
+- (void)onCappuccinoTheme:(NSMenuItem *)item
+{
+    self.ym_globalThemeMenuItem = item;
+    if (!self.ym_globalThemeSettingsWindowController) {
+        self.ym_globalThemeSettingsWindowController = [[GlobalThemeSettingsWindowController alloc] init];
+        __weak typeof(self) weakSelf = self;
+        self.ym_globalThemeSettingsWindowController.applyHandler = ^(BOOL success) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (success) {
+                strongSelf.ym_globalThemeMenuItem.state = NSControlStateValueOn;
+            }
+        };
+    }
+    [self.ym_globalThemeSettingsWindowController showWindowCentered];
+}
 #pragma mark - 主题模式 Menu
 
 - (NSMenuItem *)ym_createThemeModeMenu
@@ -207,9 +229,18 @@
                                                 keyEquivalent:@""
                                                         state:mistyEnabled];
     self.ym_mistyModeMenuItem = mistyModeMenu;
-    
+
+    NSMenuItem *cappuccinoMenu = [NSMenuItem menuItemWithTitle:@"全局主题设置  ▶"
+                                                        action:@selector(onCappuccinoTheme:)
+                                                        target:self
+                                                 keyEquivalent:@""
+                                                         state:[defaults boolForKey:YMCappuccinoThemeEnabledKey]];
+    self.ym_globalThemeMenuItem = cappuccinoMenu;
     NSMenu *themeSubMenu = [[NSMenu alloc] initWithTitle:@"主题模式"];
-    [themeSubMenu addItem:mistyModeMenu];
+    [themeSubMenu addItems:@[
+        mistyModeMenu,
+        cappuccinoMenu,
+    ]];
     
     NSMenuItem *themeMenu = [[NSMenuItem alloc] init];
     themeMenu.title = @"主题模式";

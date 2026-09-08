@@ -50,6 +50,36 @@
 <p align="center">
   <img src="https://star-history.dera.page/svg?repos=MustangYM/SovietExtension&type=Date" width="600" alt="SovietExtension Effect 3" />
 </p>
+## Global Theme / 全局主题
+
+支持对微信 4.x Qt/mmui 原生界面应用全局配色，入口：
+
+```text
+苏维埃助手 → 主题模式 → 全局主题设置
+```
+
+当前内置：
+
+- Catppuccin（Latte / Mocha）
+- Catppuccin Frappé
+- Catppuccin Macchiato
+- Gruvbox
+- Tokyo Night
+- 跟随 macOS 浅色 / 深色外观
+- 主背景、Ribbon、收发气泡、文字、链接和强调色自定义
+- 高级命名主题键覆盖
+
+点击“应用并重启”后，工具会从原始备份重新生成主题、签名并重启微信，避免多次应用造成颜色累积漂移。聊天图片、头像、网页和小程序不会被全局配色替换。
+
+左侧 Ribbon 使用 `mmui::MainTabBar` 暴露的原生窗口 backing surface 着色，不使用半透明覆盖层，因此不会混合图标、遮挡会话列表或改变普通 QNSView 的不透明渲染。Catppuccin 深色模式默认使用：
+
+```text
+Ribbon       #303446
+置顶会话     #313244
+普通会话     #1E1E2E
+```
+
+> 修改 `wechat.dylib` 后必须先签名该 dylib，再签名完整的 `WeChat.app`。安装器会优先使用 `SOVIET_CODE_SIGN_IDENTITY` 或本机可用的 Apple Development 证书；如果只能使用 ad-hoc 签名，macOS 可能要求重新授予“完全磁盘访问权限”。
 
 ---
 

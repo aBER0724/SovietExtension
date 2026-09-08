@@ -16,6 +16,7 @@ APP_NAME="WeChat"
 FRAMEWORK_NAME="${FRAMEWORK_NAME:-SovietExtension}"
 APP_PATH="/Applications/${APP_NAME}.app"
 FORCE=0
+ENABLE_CATPPUCCIN=1
 RUN_SUDO=0
 
 # Runtime vars
@@ -29,6 +30,7 @@ INSERT_DYLIB_PATH=""
 INSERT_DYLIB_RUNNER=""
 INSERT_DYLIB_RUN_MODE=""
 
+CODE_SIGN_IDENTITY=""
 # ------------------------------
 # log helpers
 # ------------------------------
@@ -59,12 +61,13 @@ Usage:
   sh install.sh
   ./install.sh --force
   ./install.sh --app=/Applications/WeChat.app
-
+  ./install.sh --no-catppuccin
 Options:
   --force              Ignore version check and install anyway / 忽略版本检查，强制安装
   --app=PATH           Specify WeChat.app path / 指定 WeChat.app 路径
   --framework=NAME     Specify framework name, default: SovietExtension / 指定插件名，默认 SovietExtension
   --insert-dylib=PATH  Specify insert_dylib path / 指定 insert_dylib 路径
+  --no-catppuccin      Do not apply Catppuccin Latte/Mocha global theme / 不应用全局主题
   -h, --help           Show help / 显示帮助
 
 Supported tool layout / 推荐工具文件布局：
@@ -84,10 +87,27 @@ run_cmd() {
     fi
 }
 
+resolve_code_sign_identity() {
+    if [ -n "${SOVIET_CODE_SIGN_IDENTITY:-}" ]; then
+        CODE_SIGN_IDENTITY="${SOVIET_CODE_SIGN_IDENTITY}"
+        return
+    fi
+    CODE_SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1)"
+    if [ -z "${CODE_SIGN_IDENTITY}" ]; then
+        CODE_SIGN_IDENTITY="-"
+        warn "No persistent code-signing identity found; Full Disk Access may reset after reinstall / 未找到稳定签名证书，重装后可能需要重新授权完全磁盘访问"
+    else
+        info "Use persistent code-signing identity / 使用稳定签名身份: ${CODE_SIGN_IDENTITY}"
+    fi
+}
+
 for arg in "$@"; do
     case "$arg" in
         --force)
             FORCE=1
+            ;;
+        --no-catppuccin)
+            ENABLE_CATPPUCCIN=0
             ;;
         --app=*)
             APP_PATH="${arg#--app=}"
@@ -107,6 +127,7 @@ for arg in "$@"; do
             ;;
     esac
 done
+resolve_code_sign_identity
 
 APP_PATH="${APP_PATH%/}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -125,6 +146,11 @@ LOAD_DYLIB_PATH="@executable_path/${FRAMEWORK_NAME}.framework/${FRAMEWORK_NAME}"
 STATE_FILE="${MACOS_PATH}/.${FRAMEWORK_NAME}.install_state"
 LOG_PATH="/tmp/YMWeChatAntiRevokePatch.log"
 
+THEME_SCRIPT="${SCRIPT_DIR}/apply_catppuccin.py"
+THEME_DYLIB="${APP_PATH}/Contents/Resources/wechat.dylib"
+THEME_BACKUP="${APP_PATH}/Contents/Resources/wechat.dylib.soviet-original"
+THEME_RUNNER="${SCRIPT_DIR}/apply_theme.sh"
+THEME_SUPPORT_DIR="${HOME}/Library/Application Support/SovietExtension"
 # ------------------------------
 # utilities
 # ------------------------------
@@ -642,25 +668,53 @@ insert_framework() {
 
 sign_app() {
     info "Code sign plugin framework / 签名插件 framework..."
-    run_cmd codesign --force --deep --sign - --timestamp=none "${FRAMEWORK_DST_PATH}"
+    run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --timestamp=none "${FRAMEWORK_DST_PATH}"
 
     info "Code sign WeChatAppEx if exists / 如果存在则签名 WeChatAppEx..."
     APP_EX_PATH="${MACOS_PATH}/WeChatAppEx.app"
 
     if [ -d "${APP_EX_PATH}" ]; then
         run_cmd xattr -rd com.apple.quarantine "${APP_EX_PATH}" >/dev/null 2>&1 || true
-        run_cmd codesign --force --deep --sign - --timestamp=none "${APP_EX_PATH}" || true
+        run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${APP_EX_PATH}" || true
 
         WEAPP_PATH="${APP_EX_PATH}/Contents/Frameworks/WeChatAppEx Framework.framework/Versions/C/Helpers/WeApp.app"
         if [ -d "${WEAPP_PATH}" ]; then
-            run_cmd codesign --force --deep --sign - --timestamp=none "${WEAPP_PATH}" || true
+            run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${WEAPP_PATH}" || true
         fi
     fi
 
     info "Code sign main WeChat.app / 签名主 WeChat.app..."
-    run_cmd codesign --force --deep --sign - --timestamp=none "${APP_PATH}"
+    run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${APP_PATH}"
 
     ok "Code sign finished / 签名完成"
+}
+
+install_theme_helpers() {
+    [ -f "${THEME_SCRIPT}" ] || die "Theme patcher missing / 主题补丁脚本不存在: ${THEME_SCRIPT}"
+    [ -f "${THEME_RUNNER}" ] || die "Theme runner missing / 主题辅助程序不存在: ${THEME_RUNNER}"
+    mkdir -p "${THEME_SUPPORT_DIR}"
+    cp "${THEME_SCRIPT}" "${THEME_SUPPORT_DIR}/apply_theme.py"
+    cp "${THEME_RUNNER}" "${THEME_SUPPORT_DIR}/apply_theme.sh"
+    chmod 755 "${THEME_SUPPORT_DIR}/apply_theme.py" "${THEME_SUPPORT_DIR}/apply_theme.sh"
+    ok "Theme editor helpers installed / 主题面板辅助程序已安装"
+}
+
+
+apply_catppuccin_theme() {
+    if [ "${ENABLE_CATPPUCCIN}" -ne 1 ]; then
+        info "Skip Catppuccin theme / 跳过 Catppuccin 主题"
+        return 0
+    fi
+
+    [ -f "${THEME_SCRIPT}" ] || die "Catppuccin patcher missing / 主题补丁脚本不存在: ${THEME_SCRIPT}"
+    [ -f "${THEME_DYLIB}" ] || die "WeChat resource dylib missing / 微信资源不存在: ${THEME_DYLIB}"
+    command_required python3
+
+    info "Apply Catppuccin Latte (light) + Mocha (dark) / 应用全局 Catppuccin 主题..."
+    run_cmd python3 "${THEME_SCRIPT}" "${THEME_DYLIB}" --backup "${THEME_BACKUP}"
+    run_cmd xattr -d com.apple.quarantine "${THEME_DYLIB}" >/dev/null 2>&1 || true
+    run_cmd codesign --force --sign "${CODE_SIGN_IDENTITY}" --identifier com.tencent.xinWeChat.theme-resource --timestamp=none "${THEME_DYLIB}"
+    ok "Catppuccin theme applied / Catppuccin 主题已应用"
 }
 
 write_state_file() {
@@ -756,6 +810,8 @@ restore_clean_executable
 copy_framework
 insert_framework
 write_state_file
+install_theme_helpers
+apply_catppuccin_theme
 sign_app
 verify_install
 print_done
