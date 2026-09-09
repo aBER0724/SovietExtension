@@ -179,10 +179,10 @@ class DirectColorConfigTests(unittest.TestCase):
                     apply_catppuccin.color_for_key(theme, named_key, (0, 0, 0), "dark"),
                     "f9e2af")
 
-    def test_all_real_bubble_body_text_keys_use_the_same_direct_text_color(self):
+    def test_actual_incoming_and_outgoing_body_text_records_use_direct_text(self):
         theme = apply_catppuccin.build_theme("catppuccin")
         self.assertEqual(theme["roles"]["dark"]["text"], "cdd6f4")
-        self.assertEqual(apply_catppuccin.BUBBLE_TEXT_KEYS, {"fg0", "fg_brand_self"})
+        self.assertEqual(apply_catppuccin.BUBBLE_TEXT_KEYS, {"fg0", "glyph0_self"})
         for named_key in apply_catppuccin.BUBBLE_TEXT_KEYS:
             with self.subTest(named_key=named_key):
                 self.assertEqual(apply_catppuccin.semantic_role(named_key), "text")
@@ -191,7 +191,34 @@ class DirectColorConfigTests(unittest.TestCase):
                 self.assertNotIn(color, {theme["roles"]["dark"]["subtext"],
                                          theme["roles"]["dark"]["accent"]})
         self.assertEqual(apply_catppuccin.semantic_role("fg_brand"), "accent")
+        self.assertEqual(apply_catppuccin.semantic_role("fg_brand_self"), "accent")
         self.assertEqual(apply_catppuccin.semantic_role("fg1"), "subtext")
+
+    def test_patch_updates_real_type1_outgoing_text_slot_and_preserves_alpha(self):
+        theme = apply_catppuccin.build_theme("catppuccin")
+        theme["advanced"]["dark"].clear()
+        # Replace the synthetic fixture's final special record with the real
+        # standalone outgoing text slot while retaining 400 canonical records.
+        def with_outgoing_slot():
+            payload = bytearray(synthetic_slice_with_records(("fg0", "fg_brand_self")))
+            # Replace the final type=243 fixture record with a type=1 glyph0_self record.
+            off = 400 * 32
+            name_pos = len(payload)
+            payload.extend(b"glyph0_self\0")
+            apply_catppuccin.struct.pack_into("<III", payload, off + 8, name_pos, 0x00600000, 1)
+            payload[off + 20:off + 24] = bytes((173, 22, 22, 22))
+            return bytes(payload)
+        source = synthetic_fat_fixture([with_outgoing_slot(), with_outgoing_slot()])
+        output, _, _ = apply_catppuccin.patch_bytes(source, theme)
+        outgoing = [record for record in structured_records(output)
+                    if record[1] == "glyph0_self" and record[2] == 1]
+        self.assertEqual(len(outgoing), 2)
+        self.assertTrue(all(value == apply_catppuccin.encoded("cdd6f4", 173)
+                            for _, _, _, value in outgoing))
+        fg_brand_self = [record for record in structured_records(output)
+                         if record[1] == "fg_brand_self" and record[2] == 3]
+        self.assertTrue(all(value[4:] == apply_catppuccin.encoded("b4befe", value[4])
+                            for _, _, _, value in fg_brand_self))
 
     def test_catppuccin_mocha_pinned_background_uses_sidebar_not_incoming_bubble(self):
         theme = apply_catppuccin.build_theme("catppuccin")
@@ -220,7 +247,8 @@ class DirectColorConfigTests(unittest.TestCase):
             "fg1": "subtext", "fg2": "subtext", "fg3": "subtext", "text2": "subtext",
             "text3": "subtext", "glyph1": "subtext", "glyph2": "subtext",
             "glyph_selected_subtitle": "subtext", "fg_brand": "accent",
-            "fg_brand_self": "text", "chat_input_hit_border_color": "accent",
+            "fg_brand_self": "accent", "glyph0_self": "text",
+            "chat_input_hit_border_color": "accent",
             "brand_button": "accent", "link": "link", "link_hover": "link",
             "hyperlink_color": "link", "red": "danger", "red_hover": "danger",
             "recording_cancel_end_color": "danger",

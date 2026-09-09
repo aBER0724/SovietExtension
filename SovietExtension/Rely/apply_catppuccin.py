@@ -96,10 +96,9 @@ FAMILY = {
     "brand":"teal", "link":"blue", "orange":"peach", "yellow":"yellow",
     "blue":"blue", "indigo":"lavender", "purple":"mauve", "rainbow_green":"green",
 }
-# Live WeChat 4.x records use fg0 for incoming body text and fg_brand_self for
-# outgoing body text. Both are direct primary text; bubble backgrounds remain
-# chat_left_bubble_color/chat_right_bubble_color.
-BUBBLE_TEXT_KEYS = {"fg0", "fg_brand_self"}
+# WeChat 4.x uses the canonical fg0 record for incoming message bodies and the
+# resolved type=1 glyph0_self record for outgoing message bodies.
+BUBBLE_TEXT_KEYS = {"fg0", "glyph0_self"}
 EXACT = {
     "bg0":"mantle", "bg1":"base", "bg2":"base", "bg3":"mantle", "bg4":"surface2",
     "bg_selection":"surface2", "bg_sidebar_alt":"crust", "navigation_bar":"mantle",
@@ -109,7 +108,7 @@ EXACT = {
     "glyph0":"text", "glyph1":"subtext0", "glyph2":"overlay1", "glyph_black":"text",
     "glyph_selected_title":"text", "glyph_selected_subtitle":"subtext1",
     "text1":"text", "text2":"subtext1", "text3":"subtext0", "fg_transparent":"text",
-    "fg_brand":"teal", "fg_brand_self":"text", "text_highlight":"yellow",
+    "fg_brand":"teal", "fg_brand_self":"green", "text_highlight":"yellow",
     "text_highlight_text":"crust", "tab_select":"text", "tab_unselect":"overlay1",
     "bg0_transparent":"mantle", "bg1_transparent":"base", "bg2_transparent":"surface0",
     "flow_layer":"base", "flow_toolbar_bg":"mantle", "flow_button_bg":"surface0",
@@ -393,7 +392,7 @@ def semantic_role(key: str) -> str | None:
         return "link"
     if lower in BUBBLE_TEXT_KEYS:
         return "text"
-    if lower in {"fg_brand", "chat_input_hit_border_color"} or lower.startswith("brand_"):
+    if lower in {"fg_brand", "fg_brand_self", "chat_input_hit_border_color"} or lower.startswith("brand_"):
         return "accent"
     if lower == "red" or lower.startswith("red_") or lower == "recording_cancel_end_color":
         return "danger"
@@ -510,6 +509,28 @@ def patch_bytes(source: bytes, theme: dict[str, Any], *,
                        encoded(color_for_key(theme, key, dark_rgb, "dark"), old[4]))
         if old != replacement:
             data[color_pos:color_pos+8] = replacement
+            patched += 1
+
+    # ChatTextItemView resolves outgoing ordinary text through this standalone
+    # type=1 slot (pristine dark value #161616), not through fg_brand_self.
+    # Patch the structurally valid slot when present (the supported WeChat fat
+    # image has exactly one per slice) and preserve its alpha while assigning
+    outgoing_records: list[int] = []
+    for slice_index, (base, size) in enumerate(slices):
+        matches = [off for off, name in _validated_named_records(source, base, size, 1)
+                   if name == "glyph0_self"]
+        if len(matches) > 1:
+            raise RuntimeError(
+                f"refusing unsafe outgoing-text patch: slice={slice_index}, "
+                f"expected at most one type=1 glyph0_self, found={len(matches)}")
+        outgoing_records.extend(matches)
+    for off in outgoing_records:
+        color_pos = off + 20
+        old = source[color_pos:color_pos+4]
+        old_rgb = (old[3], old[2], old[1])
+        replacement = encoded(color_for_key(theme, "glyph0_self", old_rgb, "dark"), old[0])
+        if old != replacement:
+            data[color_pos:color_pos+4] = replacement
             patched += 1
 
     # Some mmui consumers use single-color records resolved for a particular
