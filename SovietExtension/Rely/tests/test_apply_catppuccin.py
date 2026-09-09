@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import math
 import os
 import tempfile
 import unittest
@@ -112,6 +113,63 @@ def structured_records(payload):
 
 
 class DirectColorConfigTests(unittest.TestCase):
+    BUILTIN_SNAPSHOT = {
+        "catppuccin": {
+            "light": ("#EFF1F5", "#E6E9EF", "#DCE0E8", "#BCC0CC", "#CCD0DA", "#4C4F69", "#6C6F85", "#7287FD", "#175CD3", "#D20F39"),
+            "dark": ("#1E1E2E", "#181825", "#303446", "#45475A", "#313244", "#CDD6F4", "#A6ADC8", "#B4BEFE", "#89DCEB", "#F38BA8"),
+        },
+        "catppuccin-frappe": {
+            "light": ("#EFF1F5", "#E6E9EF", "#DCE0E8", "#DCE8D5", "#F7F7F9", "#4C4F69", "#5C5F77", "#179299", "#1E66F5", "#D20F39"),
+            "dark": ("#303446", "#292C3C", "#232634", "#51576D", "#414559", "#C6D0F5", "#B5BFE2", "#81C8BE", "#99D1DB", "#E78284"),
+        },
+        "catppuccin-macchiato": {
+            "light": ("#EFF1F5", "#E6E9EF", "#DCE0E8", "#DCE8D5", "#F7F7F9", "#4C4F69", "#5C5F77", "#179299", "#1E66F5", "#D20F39"),
+            "dark": ("#24273A", "#1E2030", "#181926", "#494D64", "#363A4F", "#CAD3F5", "#B8C0E0", "#8BD5CA", "#91D7E3", "#ED8796"),
+        },
+        "gruvbox": {
+            "light": ("#FBF1C7", "#F2E5BC", "#EBDBB2", "#D5C4A1", "#EBDBB2", "#3C3836", "#665C54", "#D65D0E", "#076678", "#CC241D"),
+            "dark": ("#282828", "#242424", "#1D2021", "#504945", "#3C3836", "#EBDBB2", "#BDAE93", "#FE8019", "#8EC07C", "#FB4934"),
+        },
+        "tokyo-night": {
+            "light": ("#D5D6DB", "#D0D1D6", "#CBCCD1", "#B7C1E3", "#C4C8DA", "#343B58", "#565A6E", "#5A4A78", "#34548A", "#8C4351"),
+            "dark": ("#1A1B26", "#1F2335", "#16161E", "#3B4261", "#24283B", "#C0CAF5", "#A9B1D6", "#BB9AF7", "#7DCFFF", "#F7768E"),
+        },
+    }
+    COLOR_KEYS = ("base", "sidebar", "ribbon", "outgoing_bubble", "incoming_bubble",
+                  "text", "subtext", "accent", "link", "danger")
+
+    @staticmethod
+    def contrast_ratio(first, second):
+        def luminance(color):
+            channels = [int(color[index:index + 2], 16) / 255.0 for index in (1, 3, 5)]
+            linear = [channel / 12.92 if channel <= 0.04045
+                      else math.pow((channel + 0.055) / 1.055, 2.4)
+                      for channel in channels]
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+        bright, dark = sorted((luminance(first), luminance(second)), reverse=True)
+        return (bright + 0.05) / (dark + 0.05)
+
+    def test_builtin_preset_snapshot_and_objective_c_editor_are_identical(self):
+        editor_path = MODULE_PATH.parents[1] / "SovietExtension" / "DirectColorThemeEditorState.m"
+        editor = editor_path.read_text(encoding="utf-8")
+        for preset, appearances in self.BUILTIN_SNAPSHOT.items():
+            theme = apply_catppuccin.build_theme(preset)
+            for side, expected_values in appearances.items():
+                expected = dict(zip(self.COLOR_KEYS, expected_values))
+                actual = {key: "#" + theme["roles"][side][key].upper() for key in self.COLOR_KEYS}
+                self.assertEqual(actual, expected, (preset, side))
+                objc_arguments = ", ".join(f'@"{color}"' for color in expected_values)
+                self.assertIn(f'@"{side}":Colors({objc_arguments})', editor)
+
+    def test_builtin_links_have_three_to_one_contrast_on_both_real_bubbles(self):
+        for preset, appearances in self.BUILTIN_SNAPSHOT.items():
+            for side, values in appearances.items():
+                colors = dict(zip(self.COLOR_KEYS, values))
+                for bubble in ("incoming_bubble", "outgoing_bubble"):
+                    ratio = self.contrast_ratio(colors["link"], colors[bubble])
+                    with self.subTest(preset=preset, appearance=side, bubble=bubble):
+                        self.assertGreaterEqual(ratio, 3.0)
+
     def test_catppuccin_mocha_pinned_background_uses_sidebar_not_incoming_bubble(self):
         theme = apply_catppuccin.build_theme("catppuccin")
         dark = theme["roles"]["dark"]

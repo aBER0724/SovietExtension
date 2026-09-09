@@ -123,7 +123,8 @@ EXACT = {
     "chat_gradient1_start_color":"surface0", "extension_tab_animate_bgcolor":"surface0",
     "clawbot_interact_button_disable_fgcolor":"overlay0",
 }
-CORE_TONES = {"base", "ribbon", "outgoing_bubble", "incoming_bubble", "text", "subtext", "link", "accent"}
+CORE_TONES = {"base", "sidebar", "ribbon", "outgoing_bubble", "incoming_bubble",
+              "text", "subtext", "link", "accent", "danger"}
 DIRECT_COLORS = {"base", "sidebar", "ribbon", "outgoing_bubble", "incoming_bubble",
                  "text", "subtext", "accent", "link", "danger"}
 CUSTOM_ROOT_FIELDS = {"schema_version", "preset", "custom_theme_id", "light", "dark", "advanced"}
@@ -132,38 +133,59 @@ HEX_COLOR = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
 def _roles(light: dict[str, str], dark: dict[str, str], *, outgoing_light: str,
            outgoing_dark: str, incoming_light: str, incoming_dark: str,
+           link_light: str, link_dark: str,
            ribbon_dark: str | None = None) -> dict[str, dict[str, str]]:
     return {
-        "light": {"base":"#" + light["base"], "ribbon":"#" + light["mantle"],
+        "light": {"base":"#" + light["base"], "sidebar":"#" + light["mantle"],
+                  "ribbon":"#" + light["crust"],
                   "outgoing_bubble":outgoing_light, "incoming_bubble":incoming_light,
                   "text":"#" + light["text"], "subtext":"#" + light["subtext1"],
-                  "link":"#" + light["blue"], "accent":"#" + light["teal"]},
-        "dark": {"base":"#" + dark["base"],
-                 "ribbon":ribbon_dark or ("#" + dark["mantle"]),
+                  "link":link_light, "accent":"#" + light["teal"], "danger":"#" + light["red"]},
+        "dark": {"base":"#" + dark["base"], "sidebar":"#" + dark["mantle"],
+                 "ribbon":ribbon_dark or ("#" + dark["crust"]),
                  "outgoing_bubble":outgoing_dark, "incoming_bubble":incoming_dark,
                  "text":"#" + dark["text"], "subtext":"#" + dark["subtext1"],
-                 "link":"#" + dark["blue"], "accent":"#" + dark["teal"]},
+                 "link":link_dark, "accent":"#" + dark["teal"], "danger":"#" + dark["red"]},
     }
 
 
 PRESETS: dict[str, dict[str, Any]] = {
     "catppuccin": {"light": LATTE, "dark": MOCHA,
-        "roles": _roles(LATTE, MOCHA, outgoing_light="#bcc0cc", outgoing_dark="#9399b2",
-                        incoming_light="#ccd0da", incoming_dark="#313244", ribbon_dark="#303446"),
+        "roles": _roles(LATTE, MOCHA, outgoing_light="#bcc0cc", outgoing_dark="#45475a",
+                        incoming_light="#ccd0da", incoming_dark="#313244",
+                        link_light="#175cd3", link_dark="#89dceb", ribbon_dark="#303446"),
         "advanced": {"dark": {"bg0": "#181825"}}},
     "catppuccin-frappe": {"light": LATTE, "dark": FRAPPE,
-        "roles": _roles(LATTE, FRAPPE, outgoing_light="#dce8d5", outgoing_dark="#b5d09f",
-                        incoming_light="#f7f7f9", incoming_dark="#414559")},
+        "roles": _roles(LATTE, FRAPPE, outgoing_light="#dce8d5", outgoing_dark="#51576d",
+                        incoming_light="#f7f7f9", incoming_dark="#414559",
+                        link_light="#1e66f5", link_dark="#99d1db")},
     "catppuccin-macchiato": {"light": LATTE, "dark": MACCHIATO,
-        "roles": _roles(LATTE, MACCHIATO, outgoing_light="#dce8d5", outgoing_dark="#b5d7a5",
-                        incoming_light="#f7f7f9", incoming_dark="#363a4f")},
+        "roles": _roles(LATTE, MACCHIATO, outgoing_light="#dce8d5", outgoing_dark="#494d64",
+                        incoming_light="#f7f7f9", incoming_dark="#363a4f",
+                        link_light="#1e66f5", link_dark="#91d7e3")},
     "gruvbox": {"light": GRUVBOX_LIGHT, "dark": GRUVBOX_DARK,
-        "roles": _roles(GRUVBOX_LIGHT, GRUVBOX_DARK, outgoing_light="#d5c4a1", outgoing_dark="#a89984",
-                        incoming_light="#ebdbb2", incoming_dark="#3c3836")},
+        "roles": _roles(GRUVBOX_LIGHT, GRUVBOX_DARK, outgoing_light="#d5c4a1", outgoing_dark="#504945",
+                        incoming_light="#ebdbb2", incoming_dark="#3c3836",
+                        link_light="#076678", link_dark="#8ec07c")},
     "tokyo-night": {"light": TOKYO_LIGHT, "dark": TOKYO_DARK,
-        "roles": _roles(TOKYO_LIGHT, TOKYO_DARK, outgoing_light="#b7c1e3", outgoing_dark="#7aa2d6",
-                        incoming_light="#c4c8da", incoming_dark="#24283b")},
+        "roles": _roles(TOKYO_LIGHT, TOKYO_DARK, outgoing_light="#b7c1e3", outgoing_dark="#3b4261",
+                        incoming_light="#c4c8da", incoming_dark="#24283b",
+                        link_light="#34548a", link_dark="#7dcfff")},
 }
+
+# Literal direct-role constants keep Python preset output identical to the
+# read-only editor; no runtime mixing or color derivation is involved.
+PRESETS["catppuccin"]["roles"]["light"].update(subtext="#6c6f85", accent="#7287fd")
+PRESETS["catppuccin"]["roles"]["dark"].update(subtext="#a6adc8", accent="#b4befe")
+PRESETS["gruvbox"]["roles"]["light"].update(
+    ribbon="#ebdbb2", subtext="#665c54", accent="#d65d0e")
+PRESETS["gruvbox"]["roles"]["dark"].update(
+    sidebar="#242424", ribbon="#1d2021", subtext="#bdae93", accent="#fe8019")
+PRESETS["tokyo-night"]["roles"]["light"].update(
+    base="#d5d6db", sidebar="#d0d1d6", ribbon="#cbccd1", text="#343b58",
+    subtext="#565a6e", accent="#5a4a78")
+PRESETS["tokyo-night"]["roles"]["dark"].update(
+    sidebar="#1f2335", ribbon="#16161e", accent="#bb9af7")
 
 
 def parse_color(value: str) -> str:

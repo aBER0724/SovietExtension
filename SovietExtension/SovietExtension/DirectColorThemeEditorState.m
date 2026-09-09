@@ -80,21 +80,21 @@ static NSDictionary *DeepCopyPropertyList(NSDictionary *value) {
 + (NSDictionary *)builtInPresets {
     return @{
         @"catppuccin": @{@"title":@"Catppuccin",
-            @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#BCC0CC", @"#CCD0DA", @"#4C4F69", @"#6C6F85", @"#7287FD", @"#1E66F5", @"#D20F39"),
-            @"dark":Colors(@"#1E1E2E", @"#181825", @"#303446", @"#9399B2", @"#313244", @"#CDD6F4", @"#A6ADC8", @"#B4BEFE", @"#89B4FA", @"#F38BA8"),
+            @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#BCC0CC", @"#CCD0DA", @"#4C4F69", @"#6C6F85", @"#7287FD", @"#175CD3", @"#D20F39"),
+            @"dark":Colors(@"#1E1E2E", @"#181825", @"#303446", @"#45475A", @"#313244", @"#CDD6F4", @"#A6ADC8", @"#B4BEFE", @"#89DCEB", @"#F38BA8"),
             @"advanced":@{@"light":@{}, @"dark":@{@"bg0":@"#181825"}}},
         @"catppuccin-frappe": @{@"title":@"Frappé",
             @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#DCE8D5", @"#F7F7F9", @"#4C4F69", @"#5C5F77", @"#179299", @"#1E66F5", @"#D20F39"),
-            @"dark":Colors(@"#303446", @"#292C3C", @"#232634", @"#B5D09F", @"#414559", @"#C6D0F5", @"#B5BFE2", @"#81C8BE", @"#8CAAEE", @"#E78284"), @"advanced":EmptyAdvanced()},
+            @"dark":Colors(@"#303446", @"#292C3C", @"#232634", @"#51576D", @"#414559", @"#C6D0F5", @"#B5BFE2", @"#81C8BE", @"#99D1DB", @"#E78284"), @"advanced":EmptyAdvanced()},
         @"catppuccin-macchiato": @{@"title":@"Macchiato",
             @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#DCE8D5", @"#F7F7F9", @"#4C4F69", @"#5C5F77", @"#179299", @"#1E66F5", @"#D20F39"),
-            @"dark":Colors(@"#24273A", @"#1E2030", @"#181926", @"#B5D7A5", @"#363A4F", @"#CAD3F5", @"#B8C0E0", @"#8BD5CA", @"#8AADF4", @"#ED8796"), @"advanced":EmptyAdvanced()},
+            @"dark":Colors(@"#24273A", @"#1E2030", @"#181926", @"#494D64", @"#363A4F", @"#CAD3F5", @"#B8C0E0", @"#8BD5CA", @"#91D7E3", @"#ED8796"), @"advanced":EmptyAdvanced()},
         @"gruvbox": @{@"title":@"Gruvbox",
             @"light":Colors(@"#FBF1C7", @"#F2E5BC", @"#EBDBB2", @"#D5C4A1", @"#EBDBB2", @"#3C3836", @"#665C54", @"#D65D0E", @"#076678", @"#CC241D"),
-            @"dark":Colors(@"#282828", @"#242424", @"#1D2021", @"#A89984", @"#3C3836", @"#EBDBB2", @"#BDAE93", @"#FE8019", @"#83A598", @"#FB4934"), @"advanced":EmptyAdvanced()},
+            @"dark":Colors(@"#282828", @"#242424", @"#1D2021", @"#504945", @"#3C3836", @"#EBDBB2", @"#BDAE93", @"#FE8019", @"#8EC07C", @"#FB4934"), @"advanced":EmptyAdvanced()},
         @"tokyo-night": @{@"title":@"Tokyo Night",
             @"light":Colors(@"#D5D6DB", @"#D0D1D6", @"#CBCCD1", @"#B7C1E3", @"#C4C8DA", @"#343B58", @"#565A6E", @"#5A4A78", @"#34548A", @"#8C4351"),
-            @"dark":Colors(@"#1A1B26", @"#1F2335", @"#16161E", @"#7AA2D6", @"#24283B", @"#C0CAF5", @"#A9B1D6", @"#BB9AF7", @"#7AA2F7", @"#F7768E"), @"advanced":EmptyAdvanced()}
+            @"dark":Colors(@"#1A1B26", @"#1F2335", @"#16161E", @"#3B4261", @"#24283B", @"#C0CAF5", @"#A9B1D6", @"#BB9AF7", @"#7DCFFF", @"#F7768E"), @"advanced":EmptyAdvanced()}
     };
 }
 

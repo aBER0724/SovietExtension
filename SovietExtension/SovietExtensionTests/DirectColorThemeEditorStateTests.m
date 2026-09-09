@@ -1,4 +1,5 @@
 #import <XCTest/XCTest.h>
+#import <math.h>
 #import "DirectColorTheme.h"
 #import "DirectColorThemeEditorState.h"
 
@@ -17,6 +18,19 @@
     return colors;
 }
 
+- (double)relativeLuminance:(NSString *)hex {
+    unsigned value = 0;
+    [[NSScanner scannerWithString:[hex substringFromIndex:1]] scanHexInt:&value];
+    double channels[] = {((value >> 16) & 0xFF) / 255.0, ((value >> 8) & 0xFF) / 255.0, (value & 0xFF) / 255.0};
+    for (NSUInteger index = 0; index < 3; index++) channels[index] = channels[index] <= 0.04045 ? channels[index] / 12.92 : pow((channels[index] + 0.055) / 1.055, 2.4);
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+- (double)contrastBetween:(NSString *)first and:(NSString *)second {
+    double firstLuminance = [self relativeLuminance:first], secondLuminance = [self relativeLuminance:second];
+    return (MAX(firstLuminance, secondLuminance) + 0.05) / (MIN(firstLuminance, secondLuminance) + 0.05);
+}
+
 - (DirectColorTheme *)themeNamed:(NSString *)name identifier:(NSString *)identifier {
     NSDictionary *document = @{@"schema_version":@1, @"id":identifier, @"name":name, @"source":@"custom",
         @"created_at":@"2024-01-01T00:00:00Z", @"updated_at":@"2024-01-01T00:00:00Z",
@@ -31,8 +45,24 @@
     XCTAssertEqualObjects(dark[@"base"], @"#1E1E2E");
     XCTAssertEqualObjects(dark[@"sidebar"], @"#181825");
     XCTAssertEqualObjects(dark[@"ribbon"], @"#303446");
+    XCTAssertEqualObjects(dark[@"outgoing_bubble"], @"#45475A");
     XCTAssertEqualObjects(dark[@"incoming_bubble"], @"#313244");
+    XCTAssertEqualObjects(dark[@"link"], @"#89DCEB");
     XCTAssertEqualObjects(preset[@"advanced"][@"dark"][@"bg0"], @"#181825");
+}
+
+- (void)testEveryBuiltinLinkContrastsWithIncomingAndOutgoingBubbles {
+    NSDictionary *presets = DirectColorThemeEditorState.builtInPresets;
+    XCTAssertEqual(presets.count, 5u);
+    for (NSString *presetName in presets) {
+        for (NSString *appearance in @[@"light", @"dark"]) {
+            NSDictionary *colors = presets[presetName][appearance];
+            for (NSString *bubbleKey in @[@"incoming_bubble", @"outgoing_bubble"]) {
+                double ratio = [self contrastBetween:colors[@"link"] and:colors[bubbleKey]];
+                XCTAssertGreaterThanOrEqual(ratio, 3.0, @"%@ %@ link %@ vs %@ %@ = %.3f", presetName, appearance, colors[@"link"], bubbleKey, colors[bubbleKey], ratio);
+            }
+        }
+    }
 }
 
 - (void)testBuiltinSelectionDeepCopiesTenColorsAndIsReadOnly {
