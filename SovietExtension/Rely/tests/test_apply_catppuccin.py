@@ -116,7 +116,7 @@ class DirectColorConfigTests(unittest.TestCase):
     BUILTIN_SNAPSHOT = {
         "catppuccin": {
             "light": ("#EFF1F5", "#E6E9EF", "#DCE0E8", "#BCC0CC", "#CCD0DA", "#4C4F69", "#6C6F85", "#7287FD", "#175CD3", "#D20F39"),
-            "dark": ("#1E1E2E", "#181825", "#303446", "#45475A", "#313244", "#CDD6F4", "#A6ADC8", "#B4BEFE", "#89DCEB", "#F38BA8"),
+            "dark": ("#1E1E2E", "#181825", "#303446", "#45475A", "#313244", "#CDD6F4", "#A6ADC8", "#B4BEFE", "#F9E2AF", "#F38BA8"),
         },
         "catppuccin-frappe": {
             "light": ("#EFF1F5", "#E6E9EF", "#DCE0E8", "#DCE8D5", "#F7F7F9", "#4C4F69", "#5C5F77", "#179299", "#1E66F5", "#D20F39"),
@@ -170,6 +170,29 @@ class DirectColorConfigTests(unittest.TestCase):
                     with self.subTest(preset=preset, appearance=side, bubble=bubble):
                         self.assertGreaterEqual(ratio, 3.0)
 
+    def test_catppuccin_dark_link_is_exact_yellow(self):
+        theme = apply_catppuccin.build_theme("catppuccin")
+        self.assertEqual(theme["roles"]["dark"]["link"], "f9e2af")
+        for named_key in ("link", "link_self", "link_hover", "link_click"):
+            with self.subTest(named_key=named_key):
+                self.assertEqual(
+                    apply_catppuccin.color_for_key(theme, named_key, (0, 0, 0), "dark"),
+                    "f9e2af")
+
+    def test_all_real_bubble_body_text_keys_use_the_same_direct_text_color(self):
+        theme = apply_catppuccin.build_theme("catppuccin")
+        self.assertEqual(theme["roles"]["dark"]["text"], "cdd6f4")
+        self.assertEqual(apply_catppuccin.BUBBLE_TEXT_KEYS, {"fg0", "fg_brand_self"})
+        for named_key in apply_catppuccin.BUBBLE_TEXT_KEYS:
+            with self.subTest(named_key=named_key):
+                self.assertEqual(apply_catppuccin.semantic_role(named_key), "text")
+                color = apply_catppuccin.color_for_key(theme, named_key, (0, 0, 0), "dark")
+                self.assertEqual(color, "cdd6f4")
+                self.assertNotIn(color, {theme["roles"]["dark"]["subtext"],
+                                         theme["roles"]["dark"]["accent"]})
+        self.assertEqual(apply_catppuccin.semantic_role("fg_brand"), "accent")
+        self.assertEqual(apply_catppuccin.semantic_role("fg1"), "subtext")
+
     def test_catppuccin_mocha_pinned_background_uses_sidebar_not_incoming_bubble(self):
         theme = apply_catppuccin.build_theme("catppuccin")
         dark = theme["roles"]["dark"]
@@ -197,7 +220,7 @@ class DirectColorConfigTests(unittest.TestCase):
             "fg1": "subtext", "fg2": "subtext", "fg3": "subtext", "text2": "subtext",
             "text3": "subtext", "glyph1": "subtext", "glyph2": "subtext",
             "glyph_selected_subtitle": "subtext", "fg_brand": "accent",
-            "fg_brand_self": "accent", "chat_input_hit_border_color": "accent",
+            "fg_brand_self": "text", "chat_input_hit_border_color": "accent",
             "brand_button": "accent", "link": "link", "link_hover": "link",
             "hyperlink_color": "link", "red": "danger", "red_hover": "danger",
             "recording_cancel_end_color": "danger",

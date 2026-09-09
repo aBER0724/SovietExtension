@@ -96,6 +96,10 @@ FAMILY = {
     "brand":"teal", "link":"blue", "orange":"peach", "yellow":"yellow",
     "blue":"blue", "indigo":"lavender", "purple":"mauve", "rainbow_green":"green",
 }
+# Live WeChat 4.x records use fg0 for incoming body text and fg_brand_self for
+# outgoing body text. Both are direct primary text; bubble backgrounds remain
+# chat_left_bubble_color/chat_right_bubble_color.
+BUBBLE_TEXT_KEYS = {"fg0", "fg_brand_self"}
 EXACT = {
     "bg0":"mantle", "bg1":"base", "bg2":"base", "bg3":"mantle", "bg4":"surface2",
     "bg_selection":"surface2", "bg_sidebar_alt":"crust", "navigation_bar":"mantle",
@@ -105,7 +109,7 @@ EXACT = {
     "glyph0":"text", "glyph1":"subtext0", "glyph2":"overlay1", "glyph_black":"text",
     "glyph_selected_title":"text", "glyph_selected_subtitle":"subtext1",
     "text1":"text", "text2":"subtext1", "text3":"subtext0", "fg_transparent":"text",
-    "fg_brand":"teal", "fg_brand_self":"green", "text_highlight":"yellow",
+    "fg_brand":"teal", "fg_brand_self":"text", "text_highlight":"yellow",
     "text_highlight_text":"crust", "tab_select":"text", "tab_unselect":"overlay1",
     "bg0_transparent":"mantle", "bg1_transparent":"base", "bg2_transparent":"surface0",
     "flow_layer":"base", "flow_toolbar_bg":"mantle", "flow_button_bg":"surface0",
@@ -153,7 +157,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "catppuccin": {"light": LATTE, "dark": MOCHA,
         "roles": _roles(LATTE, MOCHA, outgoing_light="#bcc0cc", outgoing_dark="#45475a",
                         incoming_light="#ccd0da", incoming_dark="#313244",
-                        link_light="#175cd3", link_dark="#89dceb", ribbon_dark="#303446"),
+                        link_light="#175cd3", link_dark="#f9e2af", ribbon_dark="#303446"),
         "advanced": {"dark": {"bg0": "#181825"}}},
     "catppuccin-frappe": {"light": LATTE, "dark": FRAPPE,
         "roles": _roles(LATTE, FRAPPE, outgoing_light="#dce8d5", outgoing_dark="#51576d",
@@ -387,7 +391,9 @@ def semantic_role(key: str) -> str | None:
         return "ribbon"
     if lower == "link" or lower.startswith("link_") or "hyperlink" in lower:
         return "link"
-    if lower in {"fg_brand", "fg_brand_self", "chat_input_hit_border_color"} or lower.startswith("brand_"):
+    if lower in BUBBLE_TEXT_KEYS:
+        return "text"
+    if lower in {"fg_brand", "chat_input_hit_border_color"} or lower.startswith("brand_"):
         return "accent"
     if lower == "red" or lower.startswith("red_") or lower == "recording_cancel_end_color":
         return "danger"

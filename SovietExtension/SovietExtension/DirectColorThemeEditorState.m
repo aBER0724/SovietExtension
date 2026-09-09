@@ -81,7 +81,7 @@ static NSDictionary *DeepCopyPropertyList(NSDictionary *value) {
     return @{
         @"catppuccin": @{@"title":@"Catppuccin",
             @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#BCC0CC", @"#CCD0DA", @"#4C4F69", @"#6C6F85", @"#7287FD", @"#175CD3", @"#D20F39"),
-            @"dark":Colors(@"#1E1E2E", @"#181825", @"#303446", @"#45475A", @"#313244", @"#CDD6F4", @"#A6ADC8", @"#B4BEFE", @"#89DCEB", @"#F38BA8"),
+            @"dark":Colors(@"#1E1E2E", @"#181825", @"#303446", @"#45475A", @"#313244", @"#CDD6F4", @"#A6ADC8", @"#B4BEFE", @"#F9E2AF", @"#F38BA8"),
             @"advanced":@{@"light":@{}, @"dark":@{@"bg0":@"#181825"}}},
         @"catppuccin-frappe": @{@"title":@"Frappé",
             @"light":Colors(@"#EFF1F5", @"#E6E9EF", @"#DCE0E8", @"#DCE8D5", @"#F7F7F9", @"#4C4F69", @"#5C5F77", @"#179299", @"#1E66F5", @"#D20F39"),

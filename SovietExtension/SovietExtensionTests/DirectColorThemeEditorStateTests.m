@@ -47,8 +47,18 @@
     XCTAssertEqualObjects(dark[@"ribbon"], @"#303446");
     XCTAssertEqualObjects(dark[@"outgoing_bubble"], @"#45475A");
     XCTAssertEqualObjects(dark[@"incoming_bubble"], @"#313244");
-    XCTAssertEqualObjects(dark[@"link"], @"#89DCEB");
+    XCTAssertEqualObjects(dark[@"link"], @"#F9E2AF");
     XCTAssertEqualObjects(preset[@"advanced"][@"dark"][@"bg0"], @"#181825");
+}
+
+- (void)testCatppuccinBubbleTextAndLinkDirectColorsAreExact {
+    NSDictionary *dark = [DirectColorThemeEditorState builtInPresets][@"catppuccin"][@"dark"];
+    XCTAssertEqualObjects(dark[@"text"], @"#CDD6F4");
+    XCTAssertNotEqualObjects(dark[@"text"], dark[@"subtext"]);
+    XCTAssertNotEqualObjects(dark[@"text"], dark[@"accent"]);
+    XCTAssertEqualObjects(dark[@"link"], @"#F9E2AF");
+    XCTAssertEqualObjects(dark[@"incoming_bubble"], @"#313244");
+    XCTAssertEqualObjects(dark[@"outgoing_bubble"], @"#45475A");
 }
 
 - (void)testEveryBuiltinLinkContrastsWithIncomingAndOutgoingBubbles {
