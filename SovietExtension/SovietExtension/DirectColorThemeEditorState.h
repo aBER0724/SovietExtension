@@ -61,6 +61,7 @@ mayProceedWithAction:(DirectColorThemeUnsavedAction)action
                  decision:(DirectColorThemeUnsavedDecision)decision
               saveHandler:(nullable BOOL (^)(void))saveHandler;
 - (BOOL)setColor:(NSString *)color forKey:(NSString *)key appearance:(DirectColorThemeAppearance)appearance;
+- (NSDictionary<NSString *, NSString *> *)previewColorsForAppearance:(DirectColorThemeAppearance)appearance;
 - (BOOL)updateAdvancedOverrides:(NSDictionary *)advancedOverrides;
 - (void)markClean;
 - (nullable DirectColorTheme *)selectedCustomTheme;

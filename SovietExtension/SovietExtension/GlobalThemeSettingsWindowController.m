@@ -49,18 +49,33 @@ static NSString *YMHexFromColor(NSColor *color) {
     NSColor *base=YMColorFromHex(c[@"base"]), *sidebar=YMColorFromHex(c[@"sidebar"]), *ribbon=YMColorFromHex(c[@"ribbon"]);
     NSColor *incoming=YMColorFromHex(c[@"incoming_bubble"]), *outgoing=YMColorFromHex(c[@"outgoing_bubble"]);
     NSColor *text=YMColorFromHex(c[@"text"]), *subtext=YMColorFromHex(c[@"subtext"]), *accent=YMColorFromHex(c[@"accent"]);
-    [base setFill]; NSRectFill(self.bounds); [ribbon setFill]; NSRectFill(NSMakeRect(0,0,50,NSHeight(self.bounds)));
-    [sidebar setFill]; NSRectFill(NSMakeRect(50,0,95,NSHeight(self.bounds))); [accent setFill]; NSRectFill(NSMakeRect(58,15,78,8));
-    [subtext setFill]; NSRectFill(NSMakeRect(58,36,65,6)); [[subtext colorWithAlphaComponent:.45] setFill]; NSRectFill(NSMakeRect(58,52,75,5));
-    [incoming setFill]; [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(160,35,150,42) xRadius:11 yRadius:11] fill];
-    [outgoing setFill]; [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(NSWidth(self.bounds)-180,92,160,42) xRadius:11 yRadius:11] fill];
-    NSDictionary *attrs=@{NSFontAttributeName:[NSFont systemFontOfSize:11],NSForegroundColorAttributeName:text};
-    [@"接收消息与主要文字" drawAtPoint:NSMakePoint(172,49) withAttributes:attrs]; [@"发送消息" drawAtPoint:NSMakePoint(NSWidth(self.bounds)-165,106) withAttributes:attrs];
-    NSDictionary *small=@{NSFontAttributeName:[NSFont systemFontOfSize:10],NSForegroundColorAttributeName:subtext};
-    [@"次要文字" drawAtPoint:NSMakePoint(160,145) withAttributes:small];
-    [@"强调" drawAtPoint:NSMakePoint(220,145) withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:10],NSForegroundColorAttributeName:accent}];
-    [@"链接" drawAtPoint:NSMakePoint(260,145) withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:10],NSForegroundColorAttributeName:YMColorFromHex(c[@"link"])}];
-    [@"错误" drawAtPoint:NSMakePoint(295,145) withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:10],NSForegroundColorAttributeName:YMColorFromHex(c[@"danger"])}];
+    NSColor *link=YMColorFromHex(c[@"link"]), *danger=YMColorFromHex(c[@"danger"]);
+    CGFloat width=NSWidth(self.bounds), height=NSHeight(self.bounds), chatX=92;
+    [base setFill]; NSRectFill(self.bounds);
+    [ribbon setFill]; NSRectFill(NSMakeRect(0,0,26,height));
+    [sidebar setFill]; NSRectFill(NSMakeRect(26,0,66,height));
+    [accent setFill]; NSRectFill(NSMakeRect(34,17,50,7));
+    [subtext setFill]; NSRectFill(NSMakeRect(34,38,42,5));
+    [[subtext colorWithAlphaComponent:.45] setFill]; NSRectFill(NSMakeRect(34,53,49,5));
+
+    NSRect incomingRect=NSMakeRect(chatX+8,18,MAX(116,width-chatX-20),48);
+    NSRect outgoingRect=NSMakeRect(chatX+26,76,MAX(98,width-chatX-38),48);
+    [incoming setFill]; [[NSBezierPath bezierPathWithRoundedRect:incomingRect xRadius:11 yRadius:11] fill];
+    [outgoing setFill]; [[NSBezierPath bezierPathWithRoundedRect:outgoingRect xRadius:11 yRadius:11] fill];
+    NSDictionary *textAttrs=@{NSFontAttributeName:[NSFont systemFontOfSize:10],NSForegroundColorAttributeName:text};
+    NSDictionary *linkAttrs=@{NSFontAttributeName:[NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
+                              NSForegroundColorAttributeName:link, NSUnderlineStyleAttributeName:@(NSUnderlineStyleSingle)};
+    [@"接收消息与主要文字" drawAtPoint:NSMakePoint(NSMinX(incomingRect)+10,NSMinY(incomingRect)+8) withAttributes:textAttrs];
+    [@"查看链接" drawAtPoint:NSMakePoint(NSMinX(incomingRect)+10,NSMinY(incomingRect)+25) withAttributes:linkAttrs];
+    [@"发送消息" drawAtPoint:NSMakePoint(NSMinX(outgoingRect)+10,NSMinY(outgoingRect)+8) withAttributes:textAttrs];
+    [@"打开链接" drawAtPoint:NSMakePoint(NSMinX(outgoingRect)+10,NSMinY(outgoingRect)+25) withAttributes:linkAttrs];
+
+    [@"次要文字" drawAtPoint:NSMakePoint(chatX+8,132) withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:9],NSForegroundColorAttributeName:subtext}];
+    [@"强调" drawAtPoint:NSMakePoint(chatX+62,132) withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:9],NSForegroundColorAttributeName:accent}];
+    NSRect dangerCard=NSMakeRect(chatX+8,148,MAX(116,width-chatX-20),20);
+    [[base colorWithAlphaComponent:1] setFill]; [[NSBezierPath bezierPathWithRoundedRect:dangerCard xRadius:5 yRadius:5] fill];
+    [@"⚠ 发送失败 / 错误提示" drawAtPoint:NSMakePoint(NSMinX(dangerCard)+7,NSMinY(dangerCard)+3)
+                          withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:9 weight:NSFontWeightSemibold],NSForegroundColorAttributeName:danger}];
 }
 @end
 
@@ -172,7 +187,7 @@ static NSString *YMHexFromColor(NSColor *color) {
 }
 
 - (void)ym_selectPopupIdentifier:(NSString *)identifier { for (NSMenuItem *item in self.themePopup.itemArray) if ([item.representedObject isEqual:identifier]) { [self.themePopup selectItem:item]; return; } }
-- (NSDictionary *)ym_currentColors { return self.editorState.appearance==DirectColorThemeAppearanceDark?self.editorState.darkColors:self.editorState.lightColors; }
+- (NSDictionary *)ym_currentColors { return [self.editorState previewColorsForAppearance:self.editorState.appearance]; }
 
 - (void)ym_refreshControls {
     self.refreshing=YES; self.appearanceControl.selectedSegment=self.editorState.appearance; NSDictionary *colors=[self ym_currentColors];

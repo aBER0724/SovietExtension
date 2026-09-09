@@ -166,6 +166,11 @@ static NSDictionary *DeepCopyPropertyList(NSDictionary *value) {
     return YES;
 }
 
+- (NSDictionary<NSString *, NSString *> *)previewColorsForAppearance:(DirectColorThemeAppearance)appearance {
+    NSDictionary *colors = appearance == DirectColorThemeAppearanceDark ? self.darkColors : self.lightColors;
+    return [colors copy];
+}
+
 - (BOOL)updateAdvancedOverrides:(NSDictionary *)advancedOverrides {
     if (![advancedOverrides isKindOfClass:NSDictionary.class] || ![[NSSet setWithArray:advancedOverrides.allKeys] isEqualToSet:[NSSet setWithArray:@[@"light", @"dark"]]]) return NO;
     if (![advancedOverrides[@"light"] isKindOfClass:NSDictionary.class] || ![advancedOverrides[@"dark"] isKindOfClass:NSDictionary.class]) return NO;

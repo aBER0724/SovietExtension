@@ -289,6 +289,28 @@
     XCTAssertNotNil(state.warning);
 }
 
+- (void)testPreviewColorsUseExactUppercaseDirectLinkAndDangerForEachAppearance {
+    DirectColorThemeEditorState *state = [[DirectColorThemeEditorState alloc] initWithBuiltInPresets:DirectColorThemeEditorState.builtInPresets customThemes:@[]];
+    [state setColor:@"#a1b2c3" forKey:@"link" appearance:DirectColorThemeAppearanceLight];
+    [state setColor:@"#d4e5f6" forKey:@"danger" appearance:DirectColorThemeAppearanceLight];
+    [state setColor:@"#102938" forKey:@"link" appearance:DirectColorThemeAppearanceDark];
+    [state setColor:@"#fedcba" forKey:@"danger" appearance:DirectColorThemeAppearanceDark];
+
+    NSDictionary *light = [state previewColorsForAppearance:DirectColorThemeAppearanceLight];
+    NSDictionary *dark = [state previewColorsForAppearance:DirectColorThemeAppearanceDark];
+
+    XCTAssertEqual(light.count, 10u);
+    XCTAssertEqual(dark.count, 10u);
+    XCTAssertEqualObjects([NSSet setWithArray:light.allKeys], DirectColorTheme.requiredColorKeys);
+    XCTAssertEqualObjects([NSSet setWithArray:dark.allKeys], DirectColorTheme.requiredColorKeys);
+    XCTAssertEqualObjects(light[@"link"], @"#A1B2C3");
+    XCTAssertEqualObjects(light[@"danger"], @"#D4E5F6");
+    XCTAssertEqualObjects(dark[@"link"], @"#102938");
+    XCTAssertEqualObjects(dark[@"danger"], @"#FEDCBA");
+    XCTAssertNil(light[@"derived_link"]);
+    XCTAssertNil(light[@"derived_danger"]);
+}
+
 - (void)testSchemaTwoSnapshotHasOnlyDirectColorsAndNoPalette {
     DirectColorTheme *theme = [self themeNamed:@"Ocean" identifier:@"11111111-1111-1111-1111-111111111111"];
     DirectColorThemeEditorState *state = [[DirectColorThemeEditorState alloc] initWithBuiltInPresets:[DirectColorThemeEditorState builtInPresets] customThemes:@[theme]];
