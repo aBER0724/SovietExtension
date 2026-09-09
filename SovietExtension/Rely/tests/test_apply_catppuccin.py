@@ -130,7 +130,7 @@ class DirectColorConfigTests(unittest.TestCase):
         self.assertEqual(theme["roles"]["light"],
                          {key: value[1:].lower() for key, value in TEN_COLORS.items()})
         expected = {
-            "bg1": "incoming_bubble", "bg2": "base", "flow_layer": "base", "sns_bg": "base",
+            "bg1": "base", "bg2": "base", "flow_layer": "base", "sns_bg": "base",
             "chat_brand_page_bkg": "base", "bg_sidebar_alt": "sidebar",
             "bg0": "ribbon", "bg3": "ribbon", "navigation_bar": "ribbon",
             "flow_toolbar_bg": "ribbon", "chat_right_bubble_color": "outgoing_bubble",
@@ -292,21 +292,6 @@ class DirectColorConfigTests(unittest.TestCase):
         self.assertEqual(theme["roles"]["light"]["base"], apply_catppuccin.LATTE["base"])
         self.assertEqual(apply_catppuccin.color_for_key(theme, "bg0", (0, 0, 0), "dark"),
                          "181825")
-
-    def test_official_account_resolved_backgrounds_map_directly_and_exactly(self):
-        theme = apply_catppuccin.build_theme("catppuccin")
-        self.assertEqual(
-            apply_catppuccin.color_for_key(theme, "bg1", (47, 47, 48), "dark"),
-            "313244")
-        self.assertEqual(
-            apply_catppuccin.color_for_key(theme, "bg2", (30, 30, 31), "dark"),
-            "1e1e2e")
-        self.assertEqual(
-            apply_catppuccin.color_for_key(theme, "bg1", (255, 255, 255), "light"),
-            theme["roles"]["light"]["incoming_bubble"])
-        self.assertEqual(
-            apply_catppuccin.color_for_key(theme, "bg2", (255, 255, 255), "light"),
-            theme["roles"]["light"]["base"])
 
     def test_resolved_type1_mirrors_are_opt_in_strict_and_alpha_preserving(self):
         source = synthetic_fat_fixture([

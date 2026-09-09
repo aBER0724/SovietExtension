@@ -8,7 +8,6 @@ APP_PATH="/Applications/WeChat.app"
 DYLIB="${APP_PATH}/Contents/Resources/wechat.dylib"
 BACKUP="${APP_PATH}/Contents/Resources/wechat.dylib.soviet-original"
 LOG="/tmp/SovietExtension-theme-apply.log"
-RESOLVED_COLOR_ARGS=(--patch-resolved-key bg1 --patch-resolved-key bg2)
 
 
 resolve_signing_identity() {
@@ -37,7 +36,7 @@ printf '\n[%s] Applying global theme\n' "$(date '+%F %T')"
 # This must remain before every quit/kill operation. It loads the pristine
 # backup, validates exact advanced keys and generates/counts the full patch in
 # memory without changing the config, backup, live dylib, or app.
-/usr/bin/python3 "${PATCHER}" "${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}" "${RESOLVED_COLOR_ARGS[@]}" --preflight
+/usr/bin/python3 "${PATCHER}" "${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}" --preflight
 
 /usr/bin/osascript -e 'tell application "WeChat" to quit' >/dev/null 2>&1 || true
 for _ in {1..30}; do
@@ -47,7 +46,7 @@ done
 /usr/bin/pkill -x WeChat >/dev/null 2>&1 || true
 /bin/sleep 0.5
 
-/usr/bin/python3 "${PATCHER}" "${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}" "${RESOLVED_COLOR_ARGS[@]}"
+/usr/bin/python3 "${PATCHER}" "${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}"
 /usr/bin/xattr -d com.apple.quarantine "${DYLIB}" >/dev/null 2>&1 || true
 if [ "${SIGN_IDENTITY}" = "-" ]; then
     echo "warning: no persistent signing identity found; Full Disk Access may need to be granted again"
