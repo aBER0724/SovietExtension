@@ -357,7 +357,9 @@ def semantic_role(key: str) -> str | None:
         return "outgoing_bubble"
     if lower == "chat_left_bubble_color":
         return "incoming_bubble"
-    if lower in {"bg1", "bg2", "flow_layer", "sns_bg", "chat_brand_page_bkg"}:
+    if lower == "bg1":
+        return "incoming_bubble"
+    if lower in {"bg2", "flow_layer", "sns_bg", "chat_brand_page_bkg"}:
         return "base"
     if lower == "bg_sidebar_alt":
         return "sidebar"

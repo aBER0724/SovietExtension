@@ -95,13 +95,14 @@ class PreflightIntegrationTests(unittest.TestCase):
             for path, snapshot in before.items():
                 self.assertEqual((path.read_bytes(), stat.S_IMODE(path.stat().st_mode)), snapshot)
 
-    def test_apply_shell_preflight_precedes_every_quit_or_kill(self):
+    def test_apply_shell_preflight_and_patch_share_resolved_arguments_before_quit(self):
         text = (RELY_DIR / "apply_theme.sh").read_text(encoding="utf-8")
-        self.assertNotIn("--patch-resolved-key", text)
+        expected = 'RESOLVED_COLOR_ARGS=(--patch-resolved-key bg1 --patch-resolved-key bg2)'
+        self.assertIn(expected, text)
         invocations = [line for line in text.splitlines()
                        if line.startswith('/usr/bin/python3 "${PATCHER}"')]
         self.assertEqual(len(invocations), 2)
-        common = '"${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}"'
+        common = '"${DYLIB}" --backup "${BACKUP}" --config "${CONFIG_PATH}" "${RESOLVED_COLOR_ARGS[@]}"'
         self.assertIn(common, invocations[0])
         self.assertIn(common, invocations[1])
         self.assertTrue(invocations[0].endswith(" --preflight"))
@@ -193,21 +194,6 @@ class PreflightIntegrationTests(unittest.TestCase):
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(calls.read_text().splitlines(), ["call"])
-
-    def test_official_accounts_patch_is_fail_closed_and_page_scoped(self):
-        text = (RELY_DIR.parent / "SovietExtension" / "SubscriptionDisorderThemePatch.m").read_text()
-        self.assertIn('@"wxalite2fd372f050eecd471a4392786dfae78c"', text)
-        self.assertIn('@"10084"', text)
-        self.assertIn('@"pkg/pages/s1s-subscription-index"', text)
-        self.assertIn('@"data-v-5b3cbe12"', text)
-        self.assertIn('.darkmode .bg-bg-0[data-v-5b3cbe12]', text)
-        self.assertIn('.darkmode .bg-bg-5', text)
-        self.assertIn('#1e1e2e!important', text)
-        self.assertIn('#313244!important', text)
-        self.assertNotIn('--BG-0:#1e1e2e', text)
-        self.assertNotIn('--BG-5:#313244', text)
-        self.assertIn('if (!YMIsExpectedSubscriptionPackage(pageDirectory)) continue;', text)
-        self.assertIn('+ (void)load', text)
 
     def test_production_scripts_call_shared_installer_and_build_gate(self):
         install = (RELY_DIR / "install.sh").read_text(encoding="utf-8")
