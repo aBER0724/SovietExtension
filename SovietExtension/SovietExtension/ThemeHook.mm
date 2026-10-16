@@ -1034,10 +1034,7 @@ static void YMInstallQNSViewHooks(void) {
 
     YMLog(@"start");
 
-    if (mistyEnabled) {
-        [MenuManager shareInstance].hasLoadMistyHook = YES;
-    }
-
+    // 上游 1.4.x 已移除 hasLoadMistyHook 机制，这里不再通知 MenuManager。
     // Qt 可能延迟注册 QNSView；重试只安装一次，关闭后不重新应用主题。
     for (NSNumber *delay in @[@1, @3]) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
