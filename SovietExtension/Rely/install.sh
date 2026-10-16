@@ -144,6 +144,7 @@ FRAMEWORK_DST_BINARY_PATH="${FRAMEWORK_DST_PATH}/${FRAMEWORK_NAME}"
 SUPPORTED_FILE="${SCRIPT_DIR}/supported_versions.txt"
 LOAD_DYLIB_PATH="@executable_path/${FRAMEWORK_NAME}.framework/${FRAMEWORK_NAME}"
 STATE_FILE="${MACOS_PATH}/.${FRAMEWORK_NAME}.install_state"
+ENTITLEMENTS_FILE="${MACOS_PATH}/.${FRAMEWORK_NAME}.entitlements"
 LOG_PATH="/tmp/YMWeChatAntiRevokePatch.log"
 
 THEME_SCRIPT="${SCRIPT_DIR}/apply_catppuccin.py"
@@ -554,13 +555,47 @@ remove_quarantine() {
     ok "Quarantine handled / quarantine 属性已处理"
 }
 
+capture_original_entitlements() {
+    info "Capture original entitlements / 记录微信原始 entitlements..."
+
+    local tmp
+    tmp="$(mktemp -t soviet-entitlements 2>/dev/null || true)"
+    [ -n "${tmp}" ] || tmp="${TMPDIR:-/tmp}/soviet-entitlements.$$"
+
+    # 必须在任何签名动作之前执行：签名会覆盖原始 entitlements
+    if codesign -d --entitlements - --xml "${APP_EXECUTABLE_PATH}" >"${tmp}" 2>/dev/null \
+        && [ -s "${tmp}" ] \
+        && grep -q "app-sandbox" "${tmp}" \
+        && plutil -lint "${tmp}" >/dev/null 2>&1; then
+        run_cmd cp -f "${tmp}" "${ENTITLEMENTS_FILE}"
+        rm -f "${tmp}"
+        ok "Original entitlements saved / 已保存原始 entitlements: ${ENTITLEMENTS_FILE}"
+        return 0
+    fi
+
+    rm -f "${tmp}"
+
+    if [ -f "${ENTITLEMENTS_FILE}" ]; then
+        ok "Reuse saved entitlements / 复用已保存的 entitlements"
+        return 0
+    fi
+
+    warn "Cannot read original entitlements; WeChat may quit right after launch / 无法读取原始 entitlements，签名后微信可能启动即退出"
+    return 0
+}
+
 is_executable_injected() {
     local executable="$1"
 
     [ -f "${executable}" ] || return 1
 
-    otool -l "${executable}" 2>/dev/null | grep -q "${LOAD_DYLIB_PATH}" && return 0
-    otool -l "${executable}" 2>/dev/null | grep -q "${FRAMEWORK_NAME}.framework/${FRAMEWORK_NAME}" && return 0
+    local load_commands
+    load_commands="$(otool -l "${executable}" 2>/dev/null || true)"
+
+    # 不要写成 `otool -l ... | grep -q ...`：grep -q 命中即退出会让 otool 写管道失败（退出码 1），
+    # 在 set -o pipefail 下整条管道被判为失败，导致已注入也报“未检测到”。
+    grep -qF "${LOAD_DYLIB_PATH}" <<< "${load_commands}" && return 0
+    grep -qF "${FRAMEWORK_NAME}.framework/${FRAMEWORK_NAME}" <<< "${load_commands}" && return 0
 
     return 1
 }
@@ -685,7 +720,14 @@ sign_app() {
     fi
 
     info "Code sign main WeChat.app / 签名主 WeChat.app..."
-    run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${APP_PATH}"
+    if [ -f "${ENTITLEMENTS_FILE}" ]; then
+        # 必须显式带 --entitlements：微信是沙盒应用（app-sandbox + application-groups），
+        # 一旦签名丢掉这些授权，微信会静默退出（exit 255），且 Finder 不报错。
+        run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --entitlements "${ENTITLEMENTS_FILE}" --preserve-metadata=identifier,flags,runtime --timestamp=none "${APP_PATH}"
+    else
+        warn "Signing without captured entitlements, App Sandbox may be lost / 未捕获 entitlements，可能丢失 App Sandbox"
+        run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${APP_PATH}"
+    fi
 
     ok "Code sign finished / 签名完成"
 }
@@ -744,6 +786,17 @@ verify_install() {
     fi
 
     echo ""
+    info "Verify App Sandbox entitlement / 检查 App Sandbox 授权..."
+
+    local app_entitlements
+    app_entitlements="$(codesign -d --entitlements - "${APP_PATH}" 2>/dev/null || true)"
+
+    if grep -q "app-sandbox" <<< "${app_entitlements}"; then
+        ok "App Sandbox entitlement present / App Sandbox 授权正常"
+    else
+        warn "App Sandbox entitlement missing; WeChat may quit immediately after launch / 缺少 App Sandbox 授权，微信可能启动后立即退出"
+    fi
+
     info "Verify code signature / 检查签名..."
 
     if codesign -vvv --deep --strict "${APP_PATH}" >/dev/null 2>&1; then
@@ -802,6 +855,7 @@ check_supported_version
 prepare_sudo
 quit_wechat
 remove_quarantine
+capture_original_entitlements
 backup_executable
 restore_clean_executable
 copy_framework

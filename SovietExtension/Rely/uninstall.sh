@@ -18,6 +18,7 @@ APP_PATH="/Applications/${APP_NAME}.app"
 FORCE=0
 REMOVE_BACKUP=0
 RUN_SUDO=0
+CODE_SIGN_IDENTITY=""
 
 die() {
     echo ""
@@ -65,6 +66,20 @@ run_cmd() {
     fi
 }
 
+resolve_code_sign_identity() {
+    if [ -n "${SOVIET_CODE_SIGN_IDENTITY:-}" ]; then
+        CODE_SIGN_IDENTITY="${SOVIET_CODE_SIGN_IDENTITY}"
+        return
+    fi
+
+    CODE_SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1)"
+
+    if [ -z "${CODE_SIGN_IDENTITY}" ]; then
+        CODE_SIGN_IDENTITY="-"
+        warn "No persistent code-signing identity found; fall back to ad-hoc signing / 未找到稳定签名证书，退化为 ad-hoc 签名"
+    fi
+}
+
 for arg in "$@"; do
     case "$arg" in
         --force)
@@ -96,6 +111,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACOS_PATH="${APP_PATH}/Contents/MacOS"
 INFO_PLIST="${APP_PATH}/Contents/Info.plist"
 APP_EXECUTABLE_PATH="${MACOS_PATH}/${APP_NAME}"
+ENTITLEMENTS_FILE="${MACOS_PATH}/.${FRAMEWORK_NAME}.entitlements"
 
 FRAMEWORK_DST_PATH="${MACOS_PATH}/${FRAMEWORK_NAME}.framework"
 STATE_FILE="${MACOS_PATH}/.${FRAMEWORK_NAME}.install_state"
@@ -208,11 +224,12 @@ quit_wechat() {
 }
 
 is_injected() {
-    if otool -l "${APP_EXECUTABLE_PATH}" 2>/dev/null | grep -q "${FRAMEWORK_NAME}"; then
-        return 0
-    fi
+    local load_commands
+    load_commands="$(otool -l "${APP_EXECUTABLE_PATH}" 2>/dev/null || true)"
 
-    return 1
+    # 不要写成 `otool -l ... | grep -q ...`：grep -q 命中即退出会让 otool 写管道失败（退出码 1），
+    # 在 set -o pipefail 下整条管道被判为失败，导致已注入也报“未检测到”。
+    grep -qF "${FRAMEWORK_NAME}" <<< "${load_commands}"
 }
 
 restore_executable() {
@@ -253,16 +270,21 @@ sign_app() {
     APP_EX_PATH="${MACOS_PATH}/WeChatAppEx.app"
 
     if [ -d "${APP_EX_PATH}" ]; then
-        run_cmd codesign --force --deep --sign - --timestamp=none "${APP_EX_PATH}" || true
+        run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${APP_EX_PATH}" || true
 
         WEAPP_PATH="${APP_EX_PATH}/Contents/Frameworks/WeChatAppEx Framework.framework/Versions/C/Helpers/WeApp.app"
         if [ -d "${WEAPP_PATH}" ]; then
-            run_cmd codesign --force --deep --sign - --timestamp=none "${WEAPP_PATH}" || true
+            run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${WEAPP_PATH}" || true
         fi
     fi
 
     info "Code sign main WeChat.app / 重新签名主 WeChat.app..."
-    run_cmd codesign --force --deep --sign - --timestamp=none "${APP_PATH}"
+    if [ -f "${ENTITLEMENTS_FILE}" ]; then
+        # 卸载也要带 --entitlements，否则会出现“卸载完微信同样打不开”
+        run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --entitlements "${ENTITLEMENTS_FILE}" --preserve-metadata=identifier,flags,runtime --timestamp=none "${APP_PATH}"
+    else
+        run_cmd codesign --force --deep --sign "${CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none "${APP_PATH}"
+    fi
 
     ok "Code sign finished / 签名完成"
 }
@@ -316,6 +338,7 @@ echo "APP_PATH=${APP_PATH}"
 echo "FRAMEWORK_DST_PATH=${FRAMEWORK_DST_PATH}"
 echo ""
 
+resolve_code_sign_identity
 check_basic_files
 prepare_version_and_backup
 prepare_sudo
