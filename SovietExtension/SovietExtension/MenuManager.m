@@ -8,20 +8,53 @@
 #import "MenuManager.h"
 #import "NSMenuItem+Action.h"
 #import "NSMenu+Action.h"
-#import "YMSwizzledHelper.h"
+#import "RevokePatch.h"
 #import "MistyModeSettingsWindowController.h"
 #import "GlobalThemeSettingsWindowController.h"
 #import "CappuccinoPatch.h"
+#import "RevokeSettings.h"
+#import "SidebarManager.h"
+#import "SidebarSettingsWindowController.h"
+#import <objc/runtime.h>
 
 #ifndef kExitChatroomNickname
 #define kExitChatroomNickname @"YMExitChatroomNickname"
 #endif
+
+static NSMenuItem *YMAssistantMenuItem;
+static NSMenu *YMHostHelpMenu;
+static NSMenu *YMHostWindowsMenu;
+
+// 269079 在启动延迟回调中按末尾两项指定窗口/帮助；仅纠正助手插入造成的误指定。
+static void YMProtectAssistantMenuRole(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        for (NSString *name in @[@"setHelpMenu:", @"setWindowsMenu:"]) {
+            SEL selector = NSSelectorFromString(name);
+            Method method = class_getInstanceMethod(NSApplication.class, selector);
+            void (*original)(id, SEL, NSMenu *) = (void (*)(id, SEL, NSMenu *))method_getImplementation(method);
+            BOOL help = [name isEqualToString:@"setHelpMenu:"];
+            IMP replacement = imp_implementationWithBlock(^(NSApplication *app, NSMenu *menu) {
+                if (app == NSApp && YMAssistantMenuItem &&
+                    app.mainMenu.itemArray.lastObject == YMAssistantMenuItem) {
+                    if (help && menu == YMAssistantMenuItem.submenu) menu = YMHostHelpMenu;
+                    else if (!help && YMHostWindowsMenu && menu == YMHostHelpMenu &&
+                             app.mainMenu.numberOfItems >= 3 &&
+                             [app.mainMenu itemAtIndex:app.mainMenu.numberOfItems - 2].submenu == menu) menu = YMHostWindowsMenu;
+                }
+                original(app, selector, menu);
+            });
+            method_setImplementation(method, replacement);
+        }
+    });
+}
 
 @interface MenuManager ()
 @property (nonatomic, strong) NSMenuItem *ym_mistyModeMenuItem;
 @property (nonatomic, strong) NSMenuItem *ym_globalThemeMenuItem;
 @property (nonatomic, strong) MistyModeSettingsWindowController *ym_mistySettingsWindowController;
 @property (nonatomic, strong) GlobalThemeSettingsWindowController *ym_globalThemeSettingsWindowController;
+@property (nonatomic, strong) SidebarSettingsWindowController *ym_sidebarSettingsWindowController;
 @end
 
 @implementation MenuManager
@@ -41,38 +74,45 @@
 
 - (void)initAssistantMenuItems
 {
+    YMRegisterSelfRevokeDefault([NSUserDefaults standardUserDefaults]);
     [self ym_registerDefaultBool:NO forKey:kExitChatroomNick];
     [MistyModeSettingsWindowController registerDefaults];
     [GlobalThemeSettingsWindowController registerDefaults];
+    [SidebarManager registerDefaults];
 
     YMRegisterCappuccinoThemeDefaults();
     NSMenuItem *antiUpdateMenu = [self ym_toggleMenuItemWithTitle:@"阻止更新"
                                                               key:kAntiUpdate
                                                            action:@selector(onAntiUpdate:)];
     
-    NSMenuItem *antiRevokeMenu = [self ym_toggleMenuItemWithTitle:@"消息防撤回"
-                                                              key:kAntiRevoke
-                                                           action:@selector(onAntiRevoke:)];
-    
-    BOOL flag_forward = [[NSUserDefaults standardUserDefaults] boolForKey:kRevokeForwardToSelfRealSend];
-    NSMenuItem *forwardMenu = [NSMenuItem menuItemWithTitle:@"撤回同步到手机(文字提醒)"
-                                                     action:@selector(onRevokeForwardToSelfRealSend:)
-                                                     target:self
-                                              keyEquivalent:@""
-                                                      state:flag_forward];
-    
+    BOOL separateRevoke = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] isEqualToString:@"269079"];
     NSMenu *revokeGroupSub = [[NSMenu alloc] initWithTitle:@"消息撤回"];
-    [revokeGroupSub addItems:@[
-        antiRevokeMenu,
-        forwardMenu,
-    ]];
-    
+    [revokeGroupSub addItem:[self ym_toggleMenuItemWithTitle:@"消息防撤回"
+        key:separateRevoke ? kRevokeEnabled : kAntiRevoke action:@selector(onRevokeEnabled:)]];
+    if (separateRevoke) {
+        NSMenuItem *others = [self ym_toggleMenuItemWithTitle:@"他人" key:kAntiRevoke action:@selector(onAntiRevoke:)];
+        NSMenuItem *own = [self ym_toggleMenuItemWithTitle:@"本人" key:kSelfAntiRevoke action:@selector(onSelfAntiRevoke:)];
+        others.indentationLevel = own.indentationLevel = 1;
+        [revokeGroupSub addItems:@[others, own]];
+    }
+    [revokeGroupSub addItem:NSMenuItem.separatorItem];
+    NSMenuItem *forward = [self ym_toggleMenuItemWithTitle:@"同步到手机"
+        key:kRevokeForwardToSelfRealSend action:@selector(onRevokeForwardToSelfRealSend:)];
+    forward.toolTip = @"两组开关独立；需要开启防撤回及对应的本人或他人防撤回才会同步。";
+    [revokeGroupSub addItem:forward];
+    if (separateRevoke) {
+        NSMenuItem *others = [self ym_toggleMenuItemWithTitle:@"他人" key:kRevokeForwardOthers action:@selector(onRevokeForwardOthers:)];
+        NSMenuItem *own = [self ym_toggleMenuItemWithTitle:@"本人" key:kRevokeForwardSelf action:@selector(onRevokeForwardSelf:)];
+        others.indentationLevel = own.indentationLevel = 1;
+        [revokeGroupSub addItems:@[others, own]];
+    }
+
     NSMenuItem *revokeGroup = [[NSMenuItem alloc] init];
     revokeGroup.title = @"消息撤回";
     revokeGroup.target = self;
     revokeGroup.enabled = YES;
     revokeGroup.submenu = revokeGroupSub;
-    
+
     NSMenuItem *exitChatroomMenu = [self ym_toggleMenuItemWithTitle:@"退群监控"
                                                                 key:kExitChatroom
                                                              action:@selector(onExitChatroom:)];
@@ -81,6 +121,8 @@
                                                                         key:kExitChatroomNick
                                                                      action:@selector(onExitChatroomNickname:)];
     
+    exitChatroomNicknameMenu.toolTip = @"仅在退群监控开启时生效。";
+
     NSMenu *groupSubMenu = [[NSMenu alloc] initWithTitle:@"群相关"];
     [groupSubMenu addItems:@[
         exitChatroomMenu,
@@ -97,7 +139,7 @@
                                                                 key:kUseSystemWeb
                                                              action:@selector(onUseSystemWeb:)];
     
-    NSMenuItem *autoLoginMenu = [self ym_toggleMenuItemWithTitle:@"自动登录"
+    NSMenuItem *autoLoginMenu = [self ym_toggleMenuItemWithTitle:@"自动登录（下次启动生效）"
                                                              key:kAutoLogin
                                                           action:@selector(onAutoLogin:)];
     
@@ -108,6 +150,7 @@
                                                         state:NO];
     
     NSMenuItem *themeMenu = [self ym_createThemeModeMenu];
+    NSMenuItem *sidebarMenu = [self ym_createSidebarMenu];
    
     NSString *version = [NSString stringWithFormat:@"当前版本 %@", kCurrentVersion];
     NSMenuItem *currentVersionMenu = [NSMenuItem menuItemWithTitle:version
@@ -121,6 +164,7 @@
     [subMenu addItems:@[
         antiUpdateMenu,
         themeMenu,
+        sidebarMenu,
         revokeGroup,
         groupMenu,
         autoLoginMenu,
@@ -135,7 +179,19 @@
     menuItem.enabled = YES;
     menuItem.submenu = subMenu;
     
-    [[[NSApplication sharedApplication] mainMenu] addItem:menuItem];
+    NSApplication *application = NSApplication.sharedApplication;
+    NSMenu *mainMenu = application.mainMenu;
+    if (!mainMenu) return;
+    if (YMAssistantMenuItem.menu == mainMenu) [mainMenu removeItem:YMAssistantMenuItem];
+    YMHostHelpMenu = mainMenu.itemArray.lastObject.submenu ?: [[NSMenu alloc] initWithTitle:@""];
+    YMHostWindowsMenu = mainMenu.numberOfItems >= 2 ? [mainMenu itemAtIndex:mainMenu.numberOfItems - 2].submenu : nil;
+    YMAssistantMenuItem = menuItem;
+    YMProtectAssistantMenuRole();
+    if (!application.helpMenu) {
+        // helpMenu 为空时 AppKit 会自选菜单插入搜索；离屏菜单可关闭此行为。
+        application.helpMenu = [[NSMenu alloc] initWithTitle:@""];
+    }
+    [mainMenu addItem:menuItem];
 }
 
 #pragma mark - Menu Actions
@@ -144,49 +200,71 @@
 {
     [self ym_confirmToggleMenuItem:item
                    userDefaultsKey:kAntiUpdate
-                   informativeText:@"非必要情况千万不要关闭`禁止更新`,否则微信自动更新导致插件失效" needSave:YES];
+                   informativeText:@"非必要情况千万不要关闭`禁止更新`,否则微信自动更新导致插件失效"];
+}
+
+- (void)onRevokeEnabled:(NSMenuItem *)item
+{
+    if (![[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] isEqualToString:@"269079"]) {
+        [self onAntiRevoke:item];
+        return;
+    }
+    [self ym_confirmToggleMenuItem:item userDefaultsKey:kRevokeEnabled informativeText:nil];
+}
+
+- (void)onRevokeForwardOthers:(NSMenuItem *)item
+{
+    [self ym_confirmToggleMenuItem:item userDefaultsKey:kRevokeForwardOthers informativeText:nil];
+}
+
+- (void)onRevokeForwardSelf:(NSMenuItem *)item
+{
+    [self ym_confirmToggleMenuItem:item userDefaultsKey:kRevokeForwardSelf informativeText:nil];
 }
 
 - (void)onAntiRevoke:(NSMenuItem *)item
 {
-    [self ym_confirmToggleMenuItem:item
-                   userDefaultsKey:kAntiRevoke
-                   informativeText:@"重启微信生效" needSave:YES];
+    [self ym_confirmToggleMenuItem:item userDefaultsKey:kAntiRevoke informativeText:nil];
+}
+
+- (void)onSelfAntiRevoke:(NSMenuItem *)item
+{
+    [self ym_confirmToggleMenuItem:item userDefaultsKey:kSelfAntiRevoke informativeText:nil];
 }
 
 - (void)onExitChatroom:(NSMenuItem *)item
 {
     [self ym_confirmToggleMenuItem:item
                    userDefaultsKey:kExitChatroom
-                   informativeText:@"重启微信生效\n\n关闭后将完全关闭退群监控；退群昵称开关也不会生效。" needSave:YES];
+                   informativeText:nil];
 }
 
 - (void)onExitChatroomNickname:(NSMenuItem *)item
 {
     [self ym_confirmToggleMenuItem:item
                    userDefaultsKey:kExitChatroomNick
-                   informativeText:@"重启微信生效\n\n关闭后仍保留退群监控，但退群人可能只显示 wxid / memberID。\n部分用户偶发微信闪退，建议先关闭这个开关。" needSave:YES];
+                   informativeText:nil];
 }
 
 - (void)onAutoLogin:(NSMenuItem *)item
 {
     [self ym_confirmToggleMenuItem:item
                    userDefaultsKey:kAutoLogin
-                   informativeText:@"重启微信生效" needSave:YES];
+                   informativeText:nil];
 }
 
 - (void)onRevokeForwardToSelfRealSend:(NSMenuItem *)item
 {
     [self ym_confirmToggleMenuItem:item
                    userDefaultsKey:kRevokeForwardToSelfRealSend
-                   informativeText:@"开启后，撤回的消息将转发到自己的会话，全设备同步。\n转发的消息要显示群名需同时开启「退群监控」。\n注意：退群昵称在部分设备上可能闪退，如遇问题请关闭。\n重启微信生效。" needSave:YES];
+                   informativeText:nil];
 }
 
 - (void)onUseSystemWeb:(NSMenuItem *)item
 {
     [self ym_confirmToggleMenuItem:item
                    userDefaultsKey:kUseSystemWeb
-                   informativeText:@"重启微信生效" needSave:YES];
+                   informativeText:nil];
 }
 
 - (void)onNewWeChat:(NSMenuItem *)item
@@ -215,6 +293,37 @@
         };
     }
     [self.ym_globalThemeSettingsWindowController showWindowCentered];
+}
+
+- (void)onOpenSidebarSettings:(NSMenuItem *)item
+{
+    (void)item;
+    if (!self.ym_sidebarSettingsWindowController) {
+        self.ym_sidebarSettingsWindowController =
+            [[SidebarSettingsWindowController alloc] init];
+    }
+    [self.ym_sidebarSettingsWindowController showWindowCentered];
+}
+
+#pragma mark - 侧边栏 Menu
+
+- (NSMenuItem *)ym_createSidebarMenu
+{
+    NSMenu *submenu = [[NSMenu alloc] initWithTitle:@"侧边栏管理"];
+
+    NSMenuItem *openItem = [NSMenuItem menuItemWithTitle:@"管理左侧入口…"
+                                                  action:@selector(onOpenSidebarSettings:)
+                                                  target:self
+                                           keyEquivalent:@""
+                                                   state:NO];
+    [submenu addItem:openItem];
+
+    NSMenuItem *sidebarMenu = [[NSMenuItem alloc] init];
+    sidebarMenu.title = @"侧边栏管理";
+    sidebarMenu.target = self;
+    sidebarMenu.enabled = YES;
+    sidebarMenu.submenu = submenu;
+    return sidebarMenu;
 }
 #pragma mark - 主题模式 Menu
 
@@ -258,12 +367,7 @@
         __weak typeof(self) weakSelf = self;
         self.ym_mistySettingsWindowController.confirmHandler = ^(BOOL isOpen) {
             __strong typeof(weakSelf) strongSelf = weakSelf;
-            strongSelf.ym_mistyModeMenuItem.state = NSControlStateValueOn;
-            if (!strongSelf.hasLoadMistyHook || (strongSelf.hasLoadMistyHook && !isOpen)) {
-                [strongSelf ym_confirmToggleMenuItem:nil
-                               userDefaultsKey:nil
-                                     informativeText:@"重启立即生效" needSave:NO];
-            }
+            strongSelf.ym_mistyModeMenuItem.state = isOpen ? NSControlStateValueOn : NSControlStateValueOff;
         };
     }
 
@@ -291,35 +395,43 @@
 {
     BOOL enabled = [[NSUserDefaults standardUserDefaults] boolForKey:key];
     
-    return [NSMenuItem menuItemWithTitle:title
+    NSMenuItem *item = [NSMenuItem menuItemWithTitle:title
                                   action:action
                                   target:self
                            keyEquivalent:@""
                                    state:enabled];
+    item.representedObject = key;
+    return item;
 }
 
 - (void)ym_confirmToggleMenuItem:(NSMenuItem *)item
                  userDefaultsKey:(NSString *)key
                  informativeText:(NSString *)informativeText
-                        needSave:(BOOL)needSave
 {
-    BOOL enabled = item.state != NSControlStateValueOn;
-    
-    NSAlert *alert = [NSAlert alertWithMessageText:@"警告"
-                                     defaultButton:@"取消"
-                                   alternateButton:@"确定重启"
-                                       otherButton:nil
-                         informativeTextWithFormat:@"%@", informativeText];
-    
-    NSUInteger action = [alert runModal];
-    if (action != NSAlertAlternateReturn) {
+    BOOL enabled = ![[NSUserDefaults standardUserDefaults] boolForKey:key];
+    YMFeatureApplyResult result = YMApplyFeatureSetting(key, enabled);
+    if (result == YMFeatureUnavailable) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"设置未更改";
+        alert.informativeText = @"当前版本或运行状态无法安全应用此配置，请稍后重试或查看插件日志。";
+        [alert addButtonWithTitle:@"确定"];
+        [alert runModal];
         return;
     }
-    
-    if (needSave) {
-        [self ym_setMenuItem:item enabled:enabled userDefaultsKey:key];
+    if (result == YMFeatureNeedsRestart) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"此设置需要重启微信";
+        NSString *message = @"立即重启后生效；取消则保持原设置。";
+        if (informativeText.length > 0) {
+            message = [informativeText stringByAppendingFormat:@"\n%@\n关闭拦截不会自动开启微信的自动更新。", message];
+        }
+        alert.informativeText = message;
+        [alert addButtonWithTitle:@"取消"];
+        [alert addButtonWithTitle:@"立即重启"];
+        if ([alert runModal] != NSAlertSecondButtonReturn) return;
     }
-    [self ym_restartWeChatAfterDelay:0.5];
+    [self ym_setMenuItem:item enabled:enabled userDefaultsKey:key];
+    if (result == YMFeatureNeedsRestart) [self ym_restartWeChatAfterDelay:0.1];
 }
 
 - (void)ym_setMenuItem:(NSMenuItem *)item
@@ -330,6 +442,24 @@
     
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [defaults setBool:enabled forKey:key];
+    if ([[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] isEqualToString:@"269079"]) {
+        for (NSArray<NSString *> *group in @[@[kRevokeEnabled, kAntiRevoke, kSelfAntiRevoke],
+                                            @[kRevokeForwardToSelfRealSend, kRevokeForwardOthers, kRevokeForwardSelf]]) {
+            if (![group containsObject:key]) continue;
+            if ([key isEqualToString:group[0]]) {
+                [defaults setBool:enabled forKey:group[1]];
+                [defaults setBool:enabled forKey:group[2]];
+            } else {
+                [defaults setBool:([defaults boolForKey:group[1]] || [defaults boolForKey:group[2]]) forKey:group[0]];
+            }
+            for (NSMenuItem *sibling in item.menu.itemArray) {
+                if (![group containsObject:sibling.representedObject]) continue;
+                BOOL selected = [defaults boolForKey:sibling.representedObject];
+                sibling.state = selected ? NSControlStateValueOn : NSControlStateValueOff;
+            }
+            break;
+        }
+    }
     [defaults synchronize];
 }
 
